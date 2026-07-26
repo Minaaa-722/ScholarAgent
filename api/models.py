@@ -9,13 +9,17 @@ class SurveyRequest(BaseModel):
 
 
 class SurveyResponse(BaseModel):
-    topic: str
+    topic: str = ""
     status: str
     keywords: list[str] = []
     goal: str = ""
     max_papers: int = 20
+    pipeline_running: bool = False
+    current_stage: str = ""
+    current_message: str = ""
     retry_count: int = 0
     has_warnings: bool = False
+    task_started_at: str = ""
 
 
 class FeedbackRequest(BaseModel):
