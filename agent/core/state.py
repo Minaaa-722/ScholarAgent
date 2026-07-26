@@ -26,7 +26,14 @@ _TRANSITIONS = {
     AgentState.INTERRUPTED: {AgentState.PLANNING, AgentState.RETRIEVAL, AgentState.ANALYSIS,
                              AgentState.WRITING, AgentState.VALIDATION, AgentState.COMPLETE, AgentState.ERROR},
     AgentState.COMPLETE: set(),
-    AgentState.ERROR: {AgentState.IDLE},
+    AgentState.ERROR: {
+        AgentState.IDLE,
+        AgentState.PLANNING,
+        AgentState.RETRIEVAL,
+        AgentState.ANALYSIS,
+        AgentState.WRITING,
+        AgentState.VALIDATION,
+    },
 }
 
 
