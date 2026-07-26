@@ -1,7 +1,10 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 from agent.core.state import AgentState, StateMachine
 from agent.core.llm import LLMBase
+from agent.feedback.base import ValidationResult
+from agent.feedback.aggregator import FeedbackAggregator, FeedbackReport
+from agent.feedback.repair_generator import RepairGenerator
 
 
 @dataclass
@@ -27,7 +30,10 @@ class Harness:
         self.llm = llm
         self.state = StateMachine()
         self.task: Optional[TaskInfo] = None
-        self._iteration_count: int = 0
+        self.retry_count: int = 0
+        self.has_warnings: bool = False
+        self._aggregator = FeedbackAggregator(pass_threshold=config.quality_threshold)
+        self._repair_generator = RepairGenerator()
 
     def start(self, topic: str, keywords: str = "", goal: str = "") -> None:
         self.task = TaskInfo(
@@ -36,6 +42,8 @@ class Harness:
             goal=goal,
             max_papers=self.config.max_papers,
         )
+        self.retry_count = 0
+        self.has_warnings = False
         self.state.transition_to(AgentState.PLANNING)
 
     def get_task_info(self) -> dict:
@@ -47,7 +55,21 @@ class Harness:
             "goal": self.task.goal,
             "max_papers": self.task.max_papers,
             "status": self.state.current_state.name,
+            "retry_count": self.retry_count,
+            "has_warnings": self.has_warnings,
         }
+
+    def inject_feedback(self, results: list[ValidationResult]) -> None:
+        report = self._aggregator.aggregate(results)
+        if report.overall_passed:
+            self.state.transition_to(AgentState.COMPLETE)
+            return
+        if self.retry_count >= self.config.max_retries:
+            self.has_warnings = True
+            self.state.transition_to(AgentState.COMPLETE)
+            return
+        self.retry_count += 1
+        self.state.transition_to(AgentState.WRITING)
 
     def interrupt(self) -> None:
         self.state.interrupt()
