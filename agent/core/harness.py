@@ -3,7 +3,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from agent.core.state import AgentState, StateMachine
 from agent.core.llm import LLMBase
@@ -30,6 +30,7 @@ class HarnessConfig:
     max_papers: int = 20
     max_retries: int = 3
     quality_threshold: float = 0.7
+    max_pipeline_retries: int = 2  # Per-phase retries for transient errors (2 = 3 total attempts)
     year_start: int = 2020
     year_end: int = 2026
 
@@ -140,6 +141,10 @@ class Harness:
         self.last_result: Optional[dict] = None
         self.task_started_at: str = ""
         self.latex_repair_log = None
+        # 错误恢复状态
+        self._pipeline_retry_count: int = 0
+        self._last_failed_stage: Optional[AgentState] = None
+        self._error_message: str = ""
         # 反馈队列（线程安全）
         self.feedback_queue: list[dict] = []
         self.feedback_history: list[dict] = []
@@ -166,6 +171,9 @@ class Harness:
         )
         self.retry_count = 0
         self.has_warnings = False
+        self._pipeline_retry_count = 0
+        self._last_failed_stage = None
+        self._error_message = ""
         self.execution_log = []
         self.last_result = None
         self.task_started_at = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -229,6 +237,9 @@ class Harness:
             return {
                 "status": self.state.current_state.name,
                 "pipeline_running": self._pipeline_running,
+                "error": self._error_message,
+                "pipeline_retry_count": self._pipeline_retry_count,
+                "last_failed_stage": self._last_failed_stage.name if self._last_failed_stage else "",
                 "execution_details": details,
                 "feedback_queue": self.feedback_queue,
                 "feedback_history": self.feedback_history,
@@ -245,6 +256,9 @@ class Harness:
             "retry_count": self.retry_count,
             "has_warnings": self.has_warnings,
             "task_started_at": self.task_started_at,
+            "error": self._error_message,
+            "pipeline_retry_count": self._pipeline_retry_count,
+            "last_failed_stage": self._last_failed_stage.name if self._last_failed_stage else "",
             "execution_details": details,
             "feedback_queue": self.feedback_queue,
             "feedback_history": self.feedback_history,
@@ -350,21 +364,24 @@ class Harness:
         """Internal pipeline orchestration."""
         # ---- Stage 1: PLANNING ----
         self._progress(on_progress, "planning", "Generating research plan…")
-        plan = self._generate_plan()
+        plan = self._retry_on_error(
+                lambda: self._generate_plan(), AgentState.PLANNING, on_progress)
         self._log("PLANNING", {"plan": plan[:300] if plan else ""})
         self.state.transition_to(AgentState.RETRIEVAL)
         self._check_human_feedback(on_progress)
 
         # ---- Stage 2: RETRIEVAL ----
         self._progress(on_progress, "retrieval", "Searching arXiv and Semantic Scholar…")
-        papers = self._retrieve_papers(plan)
+        papers = self._retry_on_error(
+                lambda: self._retrieve_papers(plan), AgentState.RETRIEVAL, on_progress)
         self._log("RETRIEVAL", {"paper_count": len(papers)})
         self.state.transition_to(AgentState.ANALYSIS)
         self._check_human_feedback(on_progress)
 
         # ---- Stage 3: ANALYSIS ----
         self._progress(on_progress, "analysis", "Analyzing retrieved papers…")
-        analysis = self._analyze_papers(papers, plan)
+        analysis = self._retry_on_error(
+                lambda: self._analyze_papers(papers, plan), AgentState.ANALYSIS, on_progress)
         self._log("ANALYSIS", {"analysis_summary": (analysis or "")[:300]})
         self.state.transition_to(AgentState.WRITING)
         self._check_human_feedback(on_progress)
@@ -379,7 +396,9 @@ class Harness:
                 on_progress, "writing",
                 f"Writing survey draft (round {rounds + 1})…",
             )
-            draft = self._write_survey(analysis, plan, papers, rounds)
+            draft = self._retry_on_error(
+                lambda: self._write_survey(analysis, plan, papers, rounds),
+                AgentState.WRITING, on_progress)
             # ---- Format Repair (NEW: CVPR format post-processing) ----
             self._progress(
                 on_progress, "format_repair",
@@ -425,7 +444,9 @@ class Harness:
             self.state.transition_to(AgentState.WRITING)
 
             # Regenerate analysis with repair context
-            analysis = self._incorporate_feedback(analysis, repairs, plan)
+            analysis = self._retry_on_error(
+                lambda: self._incorporate_feedback(analysis, repairs, plan),
+                AgentState.FEEDBACK, on_progress)
 
         # Should not reach here
         self.has_warnings = True
@@ -797,6 +818,79 @@ class Harness:
         time.sleep(0.3)
         merged = self._merge.execute({"results": all_results})
         return merged.data.get("papers", []) if merged.success else []
+
+    # ------------------------------------------------------------------
+    # Error recovery helpers
+    # ------------------------------------------------------------------
+    def _ensure_state(self, target: AgentState) -> None:
+        """Transition to target state if not already there."""
+        if self.state.current_state != target:
+            self._safe_transition(target)
+
+    def _retry_on_error(
+        self,
+        fn: Callable[[], Any],
+        stage: AgentState,
+        on_progress: Optional[ProgressCallback],
+    ) -> Any:
+        """Execute a stage function with phase-level retry.
+
+        Retries up to max_pipeline_retries times on exception, with
+        exponential backoff.  Preserves results from completed phases.
+        """
+        for attempt in range(1, self.config.max_pipeline_retries + 2):
+            try:
+                self._ensure_state(stage)
+                return fn()
+            except Exception as e:
+                self._pipeline_retry_count = attempt
+                self._last_failed_stage = stage
+                self._error_message = str(e)
+                self._safe_transition(AgentState.ERROR)
+                self._log("ERROR", {
+                    "stage": stage.name,
+                    "error": str(e),
+                    "attempt": attempt,
+                    "max_attempts": self.config.max_pipeline_retries + 1,
+                })
+
+                if attempt <= self.config.max_pipeline_retries:
+                    wait = 2 ** attempt  # 2s, 4s
+                    logger.warning(
+                        "Stage %s failed (attempt %d/%d): %s. Retrying in %ds …",
+                        stage.name, attempt, self.config.max_pipeline_retries + 1, e, wait,
+                    )
+                    self._progress(
+                        on_progress, "retrying",
+                        f"⚠ {stage.name} failed (attempt {attempt}/"
+                        f"{self.config.max_pipeline_retries + 1}): "
+                        f"{e!s:.80}. Retrying in {wait}s …",
+                    )
+                    time.sleep(wait)
+                else:
+                    logger.error(
+                        "Stage %s failed after %d attempts. Giving up.",
+                        stage.name, self.config.max_pipeline_retries + 1,
+                    )
+                    raise  # All retries exhausted
+
+    def restart(self) -> None:
+        """Re-launch the pipeline with the same task parameters from ERROR state."""
+        if self.state.current_state != AgentState.ERROR:
+            raise ValueError("Can only restart from ERROR state")
+        if not self.task:
+            raise ValueError("No task to restart")
+
+        # Reset error state
+        self._pipeline_retry_count = 0
+        self._last_failed_stage = None
+        self._error_message = ""
+
+        self.run_async(
+            topic=self.task.topic,
+            keywords=", ".join(self.task.keywords),
+            goal=self.task.goal,
+        )
 
     @staticmethod
     def _extract_sections(draft: str) -> list[dict]:
