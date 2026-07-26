@@ -20,4 +20,4 @@ web/dist/
 # IDE
 .idea/
 .vscode/
-*.swp
+*.swpoutput/
