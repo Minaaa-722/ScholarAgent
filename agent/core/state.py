@@ -22,7 +22,7 @@ _TRANSITIONS = {
     AgentState.ANALYSIS: {AgentState.WRITING, AgentState.FEEDBACK, AgentState.ERROR, AgentState.INTERRUPTED},
     AgentState.WRITING: {AgentState.VALIDATION, AgentState.FEEDBACK, AgentState.ERROR, AgentState.INTERRUPTED},
     AgentState.VALIDATION: {AgentState.WRITING, AgentState.COMPLETE, AgentState.ERROR, AgentState.INTERRUPTED},
-    AgentState.FEEDBACK: {AgentState.WRITING, AgentState.RETRIEVAL, AgentState.ERROR, AgentState.INTERRUPTED},
+    AgentState.FEEDBACK: {AgentState.WRITING, AgentState.RETRIEVAL, AgentState.ANALYSIS, AgentState.ERROR, AgentState.INTERRUPTED},
     AgentState.INTERRUPTED: {AgentState.PLANNING, AgentState.RETRIEVAL, AgentState.ANALYSIS,
                              AgentState.WRITING, AgentState.VALIDATION, AgentState.COMPLETE, AgentState.ERROR},
     AgentState.COMPLETE: set(),
@@ -57,4 +57,4 @@ class StateMachine:
         self._prev_state = None
 
     def is_terminal(self) -> bool:
-        return self.current_state == AgentState.COMPLETE
+        return self.current_state in (AgentState.COMPLETE, AgentState.ERROR)
