@@ -1,5 +1,6 @@
 import json
 import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Optional
@@ -14,6 +15,7 @@ from agent.feedback.check_coherence import CoherenceChecker
 from agent.feedback.check_word_count import WordCountChecker
 from agent.feedback.detect_hallucination import HallucinationDetector
 from agent.feedback.polish_language import LanguagePolisher
+from agent.feedback.latex_repair import LatexFormatRepair
 from agent.tools.retrieval import ArxivSearch, SemanticScholarSearch, MergeResults
 from agent.tools.processing import SortByCitation, FormatBibtex
 
@@ -116,6 +118,9 @@ class Harness:
         self.task: Optional[TaskInfo] = None
         self.retry_count: int = 0
         self.has_warnings: bool = False
+        self._pipeline_running: bool = False
+        self.current_stage: str = ""
+        self.current_message: str = ""
         self._aggregator = FeedbackAggregator(pass_threshold=config.quality_threshold)
         self._repair_generator = RepairGenerator()
         self._validators = [
@@ -132,6 +137,22 @@ class Harness:
         self._bibtex = FormatBibtex()
         # Execution log for debugging
         self.execution_log: list[dict] = []
+        self.last_result: Optional[dict] = None
+        self.task_started_at: str = ""
+        self.latex_repair_log = None
+        # 反馈队列（线程安全）
+        self.feedback_queue: list[dict] = []
+        self.feedback_history: list[dict] = []
+        self._feedback_lock = threading.Lock()
+        # 阶段执行产物（用于前端展示）
+        self._plan: str = ""
+        self._papers: list[dict] = []
+        self._analysis: str = ""
+        self._draft_sections: list[dict] = []
+        self._validation_scores: dict = {}
+        self._retrieved_queries: list[str] = []
+        self._pending_expansions: list[str] = []
+        self._pending_revisions: list[str] = []
 
     # ------------------------------------------------------------------
     # Public API
@@ -146,20 +167,96 @@ class Harness:
         self.retry_count = 0
         self.has_warnings = False
         self.execution_log = []
+        self.last_result = None
+        self.task_started_at = time.strftime("%Y-%m-%dT%H:%M:%S")
+        # 重置反馈队列和阶段产物
+        self.feedback_queue = []
+        self.feedback_history = []
+        self._plan = ""
+        self._papers = []
+        self._analysis = ""
+        self._draft_sections = []
+        self._validation_scores = {}
+        self._retrieved_queries = []
+        self._pending_expansions = []
+        self._pending_revisions = []
+        # Reset state machine if in terminal state (e.g. COMPLETE from previous run)
+        if self.state.is_terminal():
+            self.state = StateMachine()
         self.state.transition_to(AgentState.PLANNING)
 
     def get_task_info(self) -> dict:
+        details = {}
+        if self._plan:
+            lines = [l.strip() for l in self._plan.split("\n") if l.strip()]
+            preview_lines = [l for l in lines if len(l) > 10][:5]
+            details["plan"] = {
+                "summary": "Research plan generated",
+                "preview": preview_lines,
+                "section_count": sum(1 for l in lines if l.startswith(("\\section", "- **", "###"))),
+            }
+        if self._papers:
+            paper_list = []
+            for p in self._papers[:10]:
+                authors = p.get("authors", [])[:3]
+                author_str = ", ".join(authors) if authors else "Unknown"
+                if len(p.get("authors", [])) > 3:
+                    author_str += " et al."
+                paper_list.append({
+                    "title": p.get("title", "Untitled"),
+                    "authors": author_str,
+                    "year": p.get("year", ""),
+                    "citations": p.get("citation_count", 0),
+                    "source": "arxiv" if p.get("arxiv_id") else "semantic_scholar",
+                })
+            details["papers"] = {
+                "total": len(self._papers),
+                "list": paper_list,
+            }
+        if self._retrieved_queries:
+            details["search_queries"] = self._retrieved_queries
+        if self._analysis:
+            details["analysis"] = {
+                "summary": "Paper analysis completed",
+                "preview": self._analysis[:300],
+            }
+        if self._draft_sections:
+            details["sections"] = self._draft_sections
+        if self._validation_scores:
+            details["validation"] = self._validation_scores
+
         if not self.task:
-            return {"status": self.state.current_state.name}
+            return {
+                "status": self.state.current_state.name,
+                "pipeline_running": self._pipeline_running,
+                "execution_details": details,
+                "feedback_queue": self.feedback_queue,
+                "feedback_history": self.feedback_history,
+            }
         return {
             "topic": self.task.topic,
             "keywords": self.task.keywords,
             "goal": self.task.goal,
             "max_papers": self.task.max_papers,
             "status": self.state.current_state.name,
+            "pipeline_running": self._pipeline_running,
+            "current_stage": self.current_stage,
+            "current_message": self.current_message,
             "retry_count": self.retry_count,
             "has_warnings": self.has_warnings,
+            "task_started_at": self.task_started_at,
+            "execution_details": details,
+            "feedback_queue": self.feedback_queue,
+            "feedback_history": self.feedback_history,
         }
+
+    def get_paper(self) -> dict:
+        """Return the final pipeline result (paper, log, etc.) or empty dict."""
+        return self.last_result or {}
+
+    def get_execution_log(self) -> list[dict]:
+        """Return the execution log."""
+        return self.execution_log
 
     def inject_feedback(self, results: list[ValidationResult]) -> None:
         report = self._aggregator.aggregate(results)
@@ -178,6 +275,20 @@ class Harness:
 
     def resume(self) -> None:
         self.state.resume()
+
+    def submit_human_feedback(self, category: str, content: str) -> dict:
+        """外部 API 调用此方法注入反馈"""
+        import uuid
+        feedback = {
+            "id": str(uuid.uuid4())[:8],
+            "category": category,
+            "content": content,
+            "status": "pending",
+            "received_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+        with self._feedback_lock:
+            self.feedback_queue.append(feedback)
+        return feedback
 
     # ------------------------------------------------------------------
     # Full pipeline run
@@ -198,9 +309,8 @@ class Harness:
           - rounds: number of writing-validation rounds
           - error: error message if status is "error"
         """
-        self.start(topic, keywords, goal)
-
         try:
+            self.start(topic, keywords, goal)
             return self._pipeline(on_progress)
         except Exception as e:
             logger.exception("Pipeline failed with fatal error")
@@ -212,6 +322,27 @@ class Harness:
                 "execution_log": self.execution_log,
             }
 
+    def run_async(
+        self,
+        topic: str,
+        keywords: str = "",
+        goal: str = "",
+        on_progress: Optional[ProgressCallback] = None,
+    ) -> None:
+        """Run the pipeline in a background thread."""
+        self._pipeline_running = True
+        self.current_stage = "starting"
+        self.current_message = "Starting pipeline…"
+
+        def _target():
+            try:
+                self.last_result = self.run(topic, keywords, goal, on_progress)
+            finally:
+                self._pipeline_running = False
+
+        thread = threading.Thread(target=_target, daemon=True)
+        thread.start()
+
     # ------------------------------------------------------------------
     # Pipeline stages (private)
     # ------------------------------------------------------------------
@@ -222,35 +353,45 @@ class Harness:
         plan = self._generate_plan()
         self._log("PLANNING", {"plan": plan[:300] if plan else ""})
         self.state.transition_to(AgentState.RETRIEVAL)
+        self._check_human_feedback(on_progress)
 
         # ---- Stage 2: RETRIEVAL ----
         self._progress(on_progress, "retrieval", "Searching arXiv and Semantic Scholar…")
         papers = self._retrieve_papers(plan)
         self._log("RETRIEVAL", {"paper_count": len(papers)})
         self.state.transition_to(AgentState.ANALYSIS)
+        self._check_human_feedback(on_progress)
 
         # ---- Stage 3: ANALYSIS ----
         self._progress(on_progress, "analysis", "Analyzing retrieved papers…")
         analysis = self._analyze_papers(papers, plan)
         self._log("ANALYSIS", {"analysis_summary": (analysis or "")[:300]})
         self.state.transition_to(AgentState.WRITING)
+        self._check_human_feedback(on_progress)
 
         # ---- Stage 4-6: WRITING + VALIDATION loop ----
         rounds = 0
         final_draft = ""
         while rounds <= self.config.max_retries:
+            self._check_human_feedback(on_progress)
             # 4. WRITING
             self._progress(
                 on_progress, "writing",
                 f"Writing survey draft (round {rounds + 1})…",
             )
             draft = self._write_survey(analysis, plan, papers, rounds)
+            # ---- Format Repair (NEW: CVPR format post-processing) ----
+            self._progress(
+                on_progress, "format_repair",
+                "Applying CVPR format repair rules…",
+            )
+            draft = self._format_repair(draft)
             final_draft = draft
             self._log("WRITING", {"round": rounds, "length": len(draft)})
             self.state.transition_to(AgentState.VALIDATION)
 
-            # 5. VALIDATION
-            self._progress(on_progress, "validation", "Running 5-dimension quality validation…")
+            # 5. VALIDATION (after format repair)
+            self._progress(on_progress, "validation", "Running 5-dimension quality validation on CVPR-formatted draft…")
             results = self._run_validators(draft)
             report = self._aggregator.aggregate(results)
             self._log("VALIDATION", {
@@ -316,6 +457,7 @@ class Harness:
         )
 
         resp = self._safe_llm_call(sys_prompt, user_msg)
+        self._plan = resp.text
         return resp.text
 
     def _retrieve_papers(self, plan: str) -> list[dict]:
@@ -378,7 +520,9 @@ class Harness:
         sorted_res = self._sort.execute({"papers": papers})
         papers = sorted_res.data.get("papers", papers) if sorted_res.success else papers
 
-        return papers[:self.config.max_papers]
+        self._papers = papers[:self.config.max_papers]
+        self._retrieved_queries = queries
+        return self._papers
 
     def _analyze_papers(self, papers: list[dict], plan: str) -> str:
         """Use LLM to analyze the retrieved papers."""
@@ -403,6 +547,7 @@ class Harness:
                 "of the field, including specific model names, techniques, and results."
             )
             resp = self._safe_llm_call(sys_prompt, user_msg)
+            self._analysis = resp.text
             return resp.text
 
         # Summarize papers for the LLM (truncate abstracts to avoid token overflow)
@@ -436,6 +581,7 @@ class Harness:
         )
 
         resp = self._safe_llm_call(sys_prompt, user_msg)
+        self._analysis = resp.text
         return resp.text
 
     def _write_survey(self, analysis: str, plan: str, papers: list[dict], round_num: int) -> str:
@@ -477,9 +623,48 @@ class Harness:
             "\\section{Conclusion}."
         )
 
+        cvpr_format_instructions = (
+            "### CVPR FORMAT REQUIREMENTS (STRICT) ###\n"
+            "1. DOCUMENT HEADER: Start with:\n"
+            "   \\documentclass[10pt,twocolumn,letterpaper]{article}\n"
+            "   \\usepackage{cvpr}\n"
+            "   \\usepackage{booktabs,amsmath,amssymb}\n"
+            "   Do NOT use \\usepackage{geometry} or adjust margins.\n"
+            "2. ABSTRACT: Use \\begin{abstract}...\\end{abstract} environment.\n"
+            "   Do NOT use \\section{Abstract}.\n"
+            "3. BIBLIOGRAPHY: Use ONLY BibTeX with:\n"
+            "   \\bibliographystyle{ieeenat}\n"
+            "   \\bibliography{references}\n"
+            "   Do NOT write \\begin{thebibliography} manually.\n"
+            "4. TABLES: Use CVPR three-line table style:\n"
+            "   \\toprule / \\midrule / \\bottomrule from booktabs.\n"
+            "   Do NOT use \\hline. Table captions go ABOVE the table.\n"
+            "   Use [htbp] float placement for all tables.\n"
+            "5. FIGURES: Captions go BELOW the figure.\n"
+            "6. CITATIONS: Place citations BEFORE the period, not after.\n"
+            "   CORRECT: ... as shown in previous work~\\cite{key}.\n"
+            "   WRONG: ... as shown in previous work.~\\cite{key}\n"
+            "7. ACRONYMS: Define all acronyms at first use.\n"
+            "   Example: Test-Time Adaptation (TTA), Batch Normalization (BN).\n"
+            "8. TIME RANGE: Survey covers 2020-2025. Works before 2020 are "
+            "foundational prior work. Use 2025, not 2026.\n"
+            "9. FAST INFERENCE: If discussing pruning, quantization, dynamic "
+            "early exit, or NAS in the Quick Test / inference context, include "
+            "this sentence: 'These optimizations reduce runtime latency during "
+            "inference, hence belong to the test-phase pipeline.'\n"
+            "10. TYPOGRAPHY: Use --- for em-dash, -- for en-dash. "
+            "Use `` and '' for quotes, not Unicode smart quotes.\n"
+            "11. PAGE LIMIT: CVPR main body is 8 pages max. "
+            "Bibliography does not count toward page limit.\n"
+            "12. Use \\section* for the abstract heading if needed, but prefer "
+            "the \\begin{abstract} environment.\n"
+            "13. All \\cite{} keys must use BibTeX-style keys (e.g., author2023title).\n"
+            "### END CVPR FORMAT REQUIREMENTS ###\n"
+        )
+
         sys_prompt = (
             "You are an academic writing assistant specializing in computer vision surveys. "
-            f"{writing_instruction}"
+            f"{writing_instruction}\n\n{cvpr_format_instructions}"
         )
         user_msg = (
             f"Title: A Comprehensive Survey on {topic}\n"
@@ -494,6 +679,7 @@ class Harness:
         )
 
         resp = self._safe_llm_call(sys_prompt, user_msg)
+        self._draft_sections = self._extract_sections(resp.text)
         return resp.text
 
     def _incorporate_feedback(self, analysis: str, repairs: str, plan: str) -> str:
@@ -534,7 +720,120 @@ class Harness:
             "content": draft or " ",
             "paper_ids": list(set(paper_ids)) if paper_ids else ["ref"],
         }
-        return [v.validate(context) for v in self._validators]
+        results = [v.validate(context) for v in self._validators]
+        self._validation_scores = {
+            r.validator_name: {
+                "score": r.score,
+                "passed": r.passed,
+                "message": (r.message or "")[:200],
+            }
+            for r in results
+        }
+        return results
+
+    # ------------------------------------------------------------------
+    # Human feedback handling
+    # ------------------------------------------------------------------
+    def _check_human_feedback(self, on_progress: Optional[ProgressCallback]) -> None:
+        """检查并处理待处理的反馈（在阶段边界调用）"""
+        with self._feedback_lock:
+            if not self.feedback_queue:
+                return
+            feedback = self.feedback_queue.pop(0)
+            feedback["status"] = "processing"
+            self.feedback_history.append(feedback)
+
+        short = feedback["content"][:60]
+        self._progress(on_progress, "feedback", f"Processing feedback ({feedback['category']}): {short}…")
+
+        if feedback["category"] == "supplement_papers":
+            self._progress(on_progress, "retrieval", f"Supplementing papers: {short}…")
+            new_papers = self._supplement_retrieval(feedback["content"])
+            self._papers.extend(new_papers)
+            # Dedup by title
+            seen_titles = set()
+            deduped = []
+            for p in self._papers:
+                t = (p.get("title") or "").strip().lower()
+                if t and t not in seen_titles:
+                    seen_titles.add(t)
+                    deduped.append(p)
+            self._papers = deduped
+
+            self._progress(on_progress, "analysis", "Re-analyzing with supplemented papers…")
+            self._analysis = self._analyze_papers(self._papers, self._plan)
+
+        elif feedback["category"] == "expand_section":
+            self._pending_expansions.append(feedback["content"])
+
+        elif feedback["category"] == "general":
+            self._pending_revisions.append(feedback["content"])
+
+        feedback["status"] = "applied"
+        self._progress(on_progress, "feedback", f"Feedback applied: {short}…")
+
+    def _supplement_retrieval(self, feedback_content: str) -> list[dict]:
+        """根据反馈内容进行补充检索"""
+        sys_prompt = (
+            "You are a literature search assistant. "
+            "Extract a concise search query from the user's feedback. "
+            "Return ONLY the query, no explanation."
+        )
+        resp = self._safe_llm_call(sys_prompt, feedback_content)
+        query = resp.text.strip().strip('"').strip("'")
+
+        if not query or len(query) > 200:
+            query = feedback_content[:100]
+
+        all_results = []
+        arxiv_res = self._arxiv_search.execute({"query": query, "max_results": 10})
+        if arxiv_res.success:
+            all_results.append(arxiv_res.data)
+
+        ss_res = self._semantic_scholar.execute({"query": query, "max_results": 10})
+        if ss_res.success:
+            all_results.append(ss_res.data)
+
+        time.sleep(0.3)
+        merged = self._merge.execute({"results": all_results})
+        return merged.data.get("papers", []) if merged.success else []
+
+    @staticmethod
+    def _extract_sections(draft: str) -> list[dict]:
+        """从 LaTeX 草稿中提取章节结构"""
+        import re
+        sections = []
+        for match in re.finditer(r'\\(?:sub)*section\{([^}]+)\}', draft):
+            sections.append({
+                "level": match.group(0).count("sub"),
+                "title": match.group(1),
+            })
+        return sections
+
+    # ------------------------------------------------------------------
+    # Format repair (CVPR LaTeX post-processing)
+    # ------------------------------------------------------------------
+    def _format_repair(self, draft: str) -> str:
+        """Run CVPR format repair on the LaTeX draft.
+
+        Applies the 10-rule LatexFormatRepair pipeline to ensure the output
+        strictly conforms to CVPR submission format.
+        """
+        repair = LatexFormatRepair()
+        repair_log = repair.repair(draft)
+        self.latex_repair_log = repair_log
+
+        if repair_log.has_changes:
+            logger.info(
+                "CVPR format repair: %d change(s) applied",
+                repair_log.change_count,
+            )
+            for entry in repair_log.entries:
+                logger.debug("  %s", entry.short())
+        else:
+            logger.info("CVPR format repair: no changes needed")
+
+        return repair_log.fixed_text
 
     # ------------------------------------------------------------------
     # Helpers
@@ -557,7 +856,9 @@ class Harness:
             logger.warning("State transition skipped: %s", e)
 
     def _progress(self, cb: Optional[ProgressCallback], stage: str, msg: str) -> None:
-        """Dispatch progress callback if set."""
+        """Dispatch progress callback if set, and store current progress."""
+        self.current_stage = stage
+        self.current_message = msg
         if cb:
             cb(stage, msg, self.get_task_info())
 
@@ -571,7 +872,7 @@ class Harness:
 
     def _result(self, paper: str, status: str, rounds: int) -> dict:
         """Build the final result dict."""
-        return {
+        result = {
             "status": status,
             "paper": paper,
             "rounds": rounds,
@@ -580,3 +881,19 @@ class Harness:
             "task": self.get_task_info(),
             "execution_log": self.execution_log,
         }
+        # Include LaTeX repair log if available
+        if self.latex_repair_log is not None:
+            result["latex_repair_log"] = {
+                "change_count": self.latex_repair_log.change_count,
+                "summary": self.latex_repair_log.summary(),
+                "entries": [
+                    {
+                        "rule": e.rule,
+                        "location": e.location,
+                        "original": e.original,
+                        "replacement": e.replacement,
+                    }
+                    for e in self.latex_repair_log.entries
+                ],
+            }
+        return result
