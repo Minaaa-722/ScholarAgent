@@ -61,3 +61,11 @@ def test_format_bibtex():
     result = FormatBibtex().execute({"paper": paper})
     assert "@article" in result.data["bibtex"]
     assert "Attention Is All You Need" in result.data["bibtex"]
+
+
+def test_format_bibtex_empty_title():
+    """FormatBibtex should not crash on empty string title."""
+    paper = {"title": "", "authors": ["Author"], "year": 2024}
+    result = FormatBibtex().execute({"paper": paper})
+    assert "@article" in result.data["bibtex"]
+    assert "Untitled" in result.data["bibtex"]

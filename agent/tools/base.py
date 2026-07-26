@@ -17,3 +17,15 @@ class Tool(ABC):
     @abstractmethod
     def execute(self, params: dict[str, Any]) -> ToolResult:
         ...
+
+
+def _dedup_by_title(papers: list[dict]) -> tuple[list[dict], int]:
+    """Remove duplicate papers by title (case-insensitive)."""
+    seen = set()
+    unique = []
+    for p in papers:
+        key = p.get("title", "").lower().strip()
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(p)
+    return unique, len(papers) - len(unique)

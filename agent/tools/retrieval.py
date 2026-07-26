@@ -1,4 +1,4 @@
-from agent.tools.base import Tool, ToolResult
+from agent.tools.base import Tool, ToolResult, _dedup_by_title
 
 
 class ArxivSearch(Tool):
@@ -53,11 +53,5 @@ class MergeResults(Tool):
         all_papers = []
         for r in results:
             all_papers.extend(r.get("papers", []))
-        seen = set()
-        unique = []
-        for p in all_papers:
-            key = p.get("title", "").lower().strip()
-            if key and key not in seen:
-                seen.add(key)
-                unique.append(p)
+        unique, _ = _dedup_by_title(all_papers)
         return ToolResult(success=True, data={"papers": unique, "total": len(unique)})

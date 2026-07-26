@@ -1,4 +1,4 @@
-from agent.tools.base import Tool, ToolResult
+from agent.tools.base import Tool, ToolResult, _dedup_by_title
 
 
 class PdfDownload(Tool):
@@ -34,14 +34,8 @@ class Dedup(Tool):
 
     def execute(self, params: dict) -> ToolResult:
         papers = params.get("papers", [])
-        seen = set()
-        unique = []
-        for p in papers:
-            title = p.get("title", "").lower().strip()
-            if title and title not in seen:
-                seen.add(title)
-                unique.append(p)
-        return ToolResult(success=True, data={"papers": unique, "removed": len(papers) - len(unique)})
+        unique, removed = _dedup_by_title(papers)
+        return ToolResult(success=True, data={"papers": unique, "removed": removed})
 
 
 class SortByCitation(Tool):
@@ -60,7 +54,7 @@ class FormatBibtex(Tool):
 
     def execute(self, params: dict) -> ToolResult:
         paper = params.get("paper", {})
-        title = paper.get("title", "Untitled")
+        title = paper.get("title", "Untitled") or "Untitled"
         authors = paper.get("authors", [])
         year = paper.get("year", 2024)
         key = title.split()[0].lower() + str(year)
