@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
-import { getSurveyStatus, submitFeedback } from "../api/client";
+import { getSurveyStatus, submitFeedback, restartSurvey } from "../api/client";
 
 const API_BASE = "http://localhost:8000";
 
@@ -44,6 +44,9 @@ interface ProgressInfo {
   keywords: string[];
   goal: string;
   task_started_at?: string;
+  error?: string;
+  pipeline_retry_count?: number;
+  last_failed_stage?: string;
   feedback_queue: FeedbackItem[];
   feedback_history: FeedbackItem[];
   execution_details: ExecutionDetails;
@@ -56,11 +59,13 @@ const STAGE_LABELS: Record<string, string> = {
   analysis: "Analysis Agent",
   writing: "Writing Agent",
   validation: "Validation Agent",
+  format_repair: "Format Repair",
+  retrying: "Retrying…",
   complete: "Complete",
   error: "Error",
 };
 
-const STAGE_ORDER = ["starting", "planning", "retrieval", "analysis", "writing", "validation", "complete", "error"];
+const STAGE_ORDER = ["starting", "planning", "retrieval", "analysis", "writing", "validation", "format_repair", "retrying", "complete", "error"];
 
 const FEEDBACK_CATEGORIES = [
   { value: "supplement_papers", label: "📄 补充论文", desc: "补充某个子领域的相关论文" },
@@ -94,6 +99,10 @@ export default function AgentExecution() {
   const [feedbackSending, setFeedbackSending] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const [feedbackHistory, setFeedbackHistory] = useState<FeedbackItem[]>([]);
+
+  // Restart state
+  const [restarting, setRestarting] = useState(false);
+  const [restartError, setRestartError] = useState<string | null>(null);
 
   // Poll HTTP status to detect new tasks (even when WebSocket is not connected)
   useEffect(() => {
@@ -179,6 +188,20 @@ export default function AgentExecution() {
       setFeedbackError("发送失败，请重试");
     } finally {
       setFeedbackSending(false);
+    }
+  };
+
+  const handleRestart = async () => {
+    setRestarting(true);
+    setRestartError(null);
+    try {
+      await restartSurvey();
+      setProgress(null);
+      setConnected(false);
+    } catch {
+      setRestartError("重启失败，请稍后重试");
+    } finally {
+      setRestarting(false);
     }
   };
 
@@ -487,6 +510,59 @@ export default function AgentExecution() {
     </div>
   );
 
+  const renderErrorPanel = () => {
+    if (progress?.status !== "ERROR" || pipelineRunning) return null;
+
+    return (
+      <div style={{
+        background: "#ffebee", borderRadius: 8, padding: "1.5rem",
+        borderLeft: "4px solid #f44336", marginBottom: "1.5rem",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+          <span style={{ fontSize: "1.5rem" }}>⚠</span>
+          <h3 style={{ margin: 0, color: "#c62828" }}>Pipeline Error</h3>
+        </div>
+
+        {progress.last_failed_stage && (
+          <p style={{ margin: "0.3rem 0", color: "#b71c1c", fontSize: "0.9rem" }}>
+            Failed at stage: <strong>{progress.last_failed_stage}</strong>
+            {progress.pipeline_retry_count > 0 && (
+              <span> (after {progress.pipeline_retry_count} attempt{progress.pipeline_retry_count > 1 ? "s" : ""})</span>
+            )}
+          </p>
+        )}
+
+        {progress.error && (
+          <div style={{
+            background: "#fff", borderRadius: 6, padding: "0.8rem", marginTop: "0.5rem",
+            fontFamily: "monospace", fontSize: "0.85rem", color: "#c62828",
+            whiteSpace: "pre-wrap", wordBreak: "break-all",
+          }}>
+            {progress.error}
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: "1rem", alignItems: "center", marginTop: "1rem" }}>
+          <button
+            onClick={handleRestart}
+            disabled={restarting}
+            style={{
+              padding: "0.7rem 2rem",
+              background: restarting ? "#ccc" : "#f44336",
+              color: "#fff", border: "none", borderRadius: 6,
+              cursor: restarting ? "not-allowed" : "pointer",
+              fontSize: "1rem", fontWeight: 600,
+              display: "flex", alignItems: "center", gap: "0.5rem",
+            }}
+          >
+            {restarting ? "重启中…" : "🔄 一键重启"}
+          </button>
+          {restartError && <span style={{ color: "#b71c1c", fontSize: "0.85rem" }}>{restartError}</span>}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div>
       <h2>Agent Execution</h2>
@@ -534,8 +610,11 @@ export default function AgentExecution() {
               {/* Full-width execution details */}
               {renderExecutionDetails()}
 
-              {/* Finished state */}
-              {pipelineFinished && (
+              {/* Error panel */}
+              {renderErrorPanel()}
+
+              {/* Pipeline finished (success) */}
+              {pipelineFinished && progress?.status !== "ERROR" && (
                 <div style={{
                   background: "#e8f5e9", borderRadius: 8, padding: "1rem 1.5rem",
                   borderLeft: "4px solid #4caf50",
