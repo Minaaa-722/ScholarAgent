@@ -12,7 +12,7 @@ def get_harness() -> Harness:
 
 @router.post("", response_model=SurveyResponse)
 async def create_survey(req: SurveyRequest, harness: Harness = Depends(get_harness)):
-    harness.start(topic=req.topic, keywords=req.keywords, goal=req.goal)
+    harness.run_async(topic=req.topic, keywords=req.keywords, goal=req.goal)
     info = harness.get_task_info()
     return SurveyResponse(**info)
 
@@ -35,3 +35,20 @@ async def resume_survey(harness: Harness = Depends(get_harness)):
     harness.resume()
     info = harness.get_task_info()
     return SurveyResponse(**info)
+
+
+@router.post("/restart", response_model=SurveyResponse)
+async def restart_survey(harness: Harness = Depends(get_harness)):
+    harness.restart()
+    info = harness.get_task_info()
+    return SurveyResponse(**info)
+
+
+@router.get("/paper")
+async def get_paper(harness: Harness = Depends(get_harness)):
+    return harness.get_paper()
+
+
+@router.get("/log")
+async def get_execution_log(harness: Harness = Depends(get_harness)):
+    return {"execution_log": harness.get_execution_log()}
