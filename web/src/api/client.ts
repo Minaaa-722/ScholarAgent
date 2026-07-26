@@ -25,6 +25,11 @@ export async function resumeSurvey() {
   return res.json();
 }
 
+export async function restartSurvey() {
+  const res = await fetch(`${API_BASE}/api/survey/restart`, { method: "POST" });
+  return res.json();
+}
+
 export async function submitFeedback(data: { category: string; content: string }) {
   const res = await fetch(`${API_BASE}/api/feedback`, {
     method: "POST", headers: { "Content-Type": "application/json" },
