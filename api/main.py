@@ -4,6 +4,12 @@ from agent.core.llm import OpenAILLM, MockLLM
 from agent.core.harness import Harness, HarnessConfig
 from api.routes import survey, feedback, progress, memory
 import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load .env from project root (two levels up from this file)
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(dotenv_path=_env_path)
 
 app = FastAPI(title="ScholarAgent API", version="1.0.0")
 
