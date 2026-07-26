@@ -7,7 +7,6 @@ class HallucinationDetector(Validator):
 
     def validate(self, context: dict) -> ValidationResult:
         content = context.get("content", "")
-        paper_ids = context.get("paper_ids", [])
         needs_citation = re.findall(r'\[citation-needed\]', content)
         if needs_citation:
             return ValidationResult(

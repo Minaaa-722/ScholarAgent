@@ -7,14 +7,14 @@ INFORMAL_PATTERNS = [
     (r'\bawesome\b', 'informal word "awesome"'),
     (r'\bcool\b', 'informal word "cool"'),
     (r'\bamazing\b', 'informal word "amazing"'),
-    (r'\b basically \b', 'informal filler "basically"'),
-    (r'\b kinda \b', 'informal word "kinda"'),
-    (r'\b sorta \b', 'informal word "sorta"'),
-    (r'\b stuff \b', 'vague term "stuff"'),
-    (r'\b a lot \b', 'informal phrase "a lot"'),
-    (r'\b really \b', 'informal intensifier "really"'),
-    (r'\b very \b', 'weak intensifier "very"'),
-    (r'\b things? \b', 'vague term "thing/things"'),
+    (r'\bbasically\b', 'informal filler "basically"'),
+    (r'\bkinda\b', 'informal word "kinda"'),
+    (r'\bsorta\b', 'informal word "sorta"'),
+    (r'\bstuff\b', 'vague term "stuff"'),
+    (r'\ba lot\b', 'informal phrase "a lot"'),
+    (r'\breally\b', 'informal intensifier "really"'),
+    (r'\bvery\b', 'weak intensifier "very"'),
+    (r'\bthings?\b', 'vague term "thing/things"'),
 ]
 
 
