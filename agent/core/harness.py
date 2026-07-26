@@ -1,9 +1,9 @@
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Optional
 from agent.core.state import AgentState, StateMachine
 from agent.core.llm import LLMBase
 from agent.feedback.base import ValidationResult
-from agent.feedback.aggregator import FeedbackAggregator, FeedbackReport
+from agent.feedback.aggregator import FeedbackAggregator
 from agent.feedback.repair_generator import RepairGenerator
 
 

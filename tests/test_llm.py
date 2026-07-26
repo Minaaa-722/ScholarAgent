@@ -1,5 +1,5 @@
 import pytest
-from agent.core.llm import LLMBase, MockLLM, LLMResponse
+from agent.core.llm import LLMBase, MockLLM
 
 
 def test_mock_llm_returns_fixed_response():

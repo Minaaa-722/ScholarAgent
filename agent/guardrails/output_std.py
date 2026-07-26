@@ -18,7 +18,7 @@ class OutputStandard(Guardrail):
             if re.search(pattern, text):
                 return GuardrailResult(
                     verdict=GuardrailVerdict.BLOCK,
-                    message=f"Informal language detected in output",
+                    message="Informal language detected in output",
                     guardrail_name=self.name,
                 )
         return GuardrailResult(

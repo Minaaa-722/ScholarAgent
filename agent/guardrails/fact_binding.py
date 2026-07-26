@@ -9,7 +9,7 @@ class FactBinding(Guardrail):
         chapter = context.get("chapter", {})
         content = chapter.get("content", "")
         # Check for citation markers like [@id]
-        citations = re.findall(r'\[@(\w+)\]', content)
+        re.findall(r'\[@(\w+)\]', content)
         needs_citation = re.findall(r'\[citation-needed\]', content)
         if needs_citation:
             return GuardrailResult(

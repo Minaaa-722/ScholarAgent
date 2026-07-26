@@ -1,8 +1,6 @@
 import pytest
 import json
-import tempfile
 import os
-from pathlib import Path
 from agent.memory.session import SessionMemory
 from agent.memory.persistent import PersistentMemory
 

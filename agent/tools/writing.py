@@ -7,7 +7,6 @@ class WriteChapter(Tool):
 
     def execute(self, params: dict) -> ToolResult:
         chapter_title = params.get("chapter_title", "")
-        context = params.get("context", {})
         return ToolResult(success=True, data={
             "chapter_title": chapter_title,
             "content": f"[Content for {chapter_title}]",

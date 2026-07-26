@@ -1,6 +1,6 @@
 import sqlite3
 import os
-from typing import Any, Optional
+from typing import Any
 from agent.memory.base import MemoryBase
 
 

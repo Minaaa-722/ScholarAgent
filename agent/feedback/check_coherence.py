@@ -33,8 +33,14 @@ class CoherenceChecker(Validator):
                 validator_name=self.name,
                 passed=False,
                 score=max(0.0, total / self.min_markers),
-                issues=[f"Only {total} transition markers found (need at least {self.min_markers})"],
-                repair_instructions="Add transition words (however, furthermore, therefore, etc.) between paragraphs and sections",
+                issues=[
+                    f"Only {total} transition markers found "
+                    f"(need at least {self.min_markers})"
+                ],
+                repair_instructions=(
+                    "Add transition words (however, furthermore, therefore, etc.) "
+                    "between paragraphs and sections"
+                ),
             )
         return ValidationResult(
             validator_name=self.name,

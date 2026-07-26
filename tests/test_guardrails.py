@@ -1,5 +1,5 @@
 import pytest
-from agent.guardrails.base import Guardrail, GuardrailResult, GuardrailVerdict
+from agent.guardrails.base import Guardrail, GuardrailVerdict
 from agent.guardrails.source_filter import SourceFilter
 from agent.guardrails.fact_binding import FactBinding
 from agent.guardrails.op_safety import OpSafety

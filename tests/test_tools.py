@@ -1,9 +1,8 @@
 import pytest
-from agent.tools.base import Tool, ToolResult
+from agent.tools.base import Tool
 from agent.tools.registry import ToolRegistry
-from agent.tools.retrieval import ArxivSearch, MergeResults
+from agent.tools.retrieval import ArxivSearch
 from agent.tools.processing import Dedup, SortByCitation, FormatBibtex
-from agent.tools.writing import WriteChapter, InsertReferences
 
 
 def test_tool_base_cannot_be_instantiated():

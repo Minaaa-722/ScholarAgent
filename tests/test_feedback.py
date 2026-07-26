@@ -5,6 +5,8 @@ from agent.feedback.detect_hallucination import HallucinationDetector
 from agent.feedback.check_word_count import WordCountChecker
 from agent.feedback.polish_language import LanguagePolisher
 from agent.feedback.check_coherence import CoherenceChecker
+from agent.feedback.aggregator import FeedbackAggregator
+from agent.feedback.repair_generator import RepairGenerator
 
 
 def test_validator_base_cannot_be_instantiated():
@@ -84,7 +86,13 @@ def test_word_count_checker_too_short():
 
 def test_word_count_checker_too_long():
     checker = WordCountChecker(min_words=10, max_words=20)
-    chapter = {"content": "This is a very long chapter that definitely exceeds the maximum word limit and should be flagged as too long by the word count checker because it has way more than twenty words."}
+    chapter = {
+        "content": (
+            "This is a very long chapter that definitely exceeds the maximum "
+            "word limit and should be flagged as too long by the word count "
+            "checker because it has way more than twenty words."
+        )
+    }
     result = checker.validate(chapter)
     assert result.passed is False
     assert "too long" in result.issues[0].lower()
@@ -108,7 +116,10 @@ def test_language_polisher_accepts_formal():
 def test_coherence_checker_has_transitions():
     checker = CoherenceChecker()
     chapter = {
-        "content": "First, we introduce the problem. Subsequently, we review related work. Finally, we discuss future directions."
+        "content": (
+            "First, we introduce the problem. Subsequently, we review "
+            "related work. Finally, we discuss future directions."
+        )
     }
     result = checker.validate(chapter)
     assert result.passed is True
@@ -133,10 +144,6 @@ def test_validation_result_dataclass():
     )
     assert result.validator_name == "test"
     assert result.passed is True
-
-
-from agent.feedback.aggregator import FeedbackAggregator, FeedbackReport
-from agent.feedback.repair_generator import RepairGenerator
 
 
 def test_aggregator_all_pass():
