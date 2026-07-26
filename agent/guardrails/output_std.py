@@ -4,8 +4,8 @@ from agent.guardrails.base import Guardrail, GuardrailResult, GuardrailVerdict
 
 INFORMAL_PATTERNS = [
     r'\bsuper\b', r'\bawesome\b', r'\bcool\b', r'\bamazing\b',
-    r'\bguess\b', r'\b basically \b', r'\b kinda \b', r'\b sorta \b',
-    r'\blike\b', r'\bthings?\b', r'\b stuff \b', r'\b a lot \b',
+    r'\bguess\b', r'\bbasically\b', r'\bkinda\b', r'\bsorta\b',
+    r'\blike\b', r'\bthings?\b', r'\bstuff\b', r'\ba lot\b',
 ]
 
 

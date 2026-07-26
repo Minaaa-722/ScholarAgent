@@ -20,7 +20,6 @@ class OpSafety(Guardrail):
     def check(self, context: dict) -> GuardrailResult:
         params = context.get("params", {})
         command = params.get("command", "")
-        action = context.get("action", "")
         for pattern in DANGEROUS_PATTERNS:
             if re.search(pattern, command, re.IGNORECASE):
                 return GuardrailResult(
