@@ -30,5 +30,21 @@ export async function submitFeedback(data: { category: string; content: string }
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
+  if (!res.ok) throw new Error("Feedback submission failed");
+  return res.json();
+}
+
+export async function getPendingFeedback() {
+  const res = await fetch(`${API_BASE}/api/feedback/pending`);
+  return res.json();
+}
+
+export async function getPaper() {
+  const res = await fetch(`${API_BASE}/api/survey/paper`);
+  return res.json();
+}
+
+export async function getExecutionLog() {
+  const res = await fetch(`${API_BASE}/api/survey/log`);
   return res.json();
 }
