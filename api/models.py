@@ -20,6 +20,9 @@ class SurveyResponse(BaseModel):
     retry_count: int = 0
     has_warnings: bool = False
     task_started_at: str = ""
+    error: str = ""
+    pipeline_retry_count: int = 0
+    last_failed_stage: str = ""
 
 
 class FeedbackRequest(BaseModel):
