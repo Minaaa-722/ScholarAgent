@@ -65,3 +65,22 @@ class GraphLink(BaseModel):
 class GraphResponse(BaseModel):
     nodes: list[GraphNode]
     links: list[GraphLink]
+
+
+class HistoryItem(BaseModel):
+    """Summary of a completed task for the history list."""
+    id: str
+    topic: str
+    keywords: list[str] = []
+    goal: str = ""
+    status: str = ""
+    timestamp: str = ""
+    paper_count: int = 0
+    has_warnings: bool = False
+    rounds: int = 0
+
+
+class HistoryDetail(HistoryItem):
+    """Full detail of a completed task, including papers and final paper."""
+    papers: list[PaperItem] = []
+    final_paper: str = ""
