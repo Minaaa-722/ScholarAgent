@@ -58,3 +58,26 @@ export async function getAutoLoadPreferences() {
   const res = await fetch(`${API_BASE}/api/memory/auto-load`);
   return res.json();
 }
+
+export async function getMemory() {
+  const res = await fetch(`${API_BASE}/api/memory`);
+  return res.json();
+}
+
+export async function updateMemory(key: string, value: string) {
+  const res = await fetch(`${API_BASE}/api/memory`, {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key, value }),
+  });
+  return res.json();
+}
+
+export async function deleteMemory(key: string) {
+  const res = await fetch(`${API_BASE}/api/memory/${encodeURIComponent(key)}`, { method: "DELETE" });
+  return res.json();
+}
+
+export async function clearMemory() {
+  const res = await fetch(`${API_BASE}/api/memory`, { method: "DELETE" });
+  return res.json();
+}

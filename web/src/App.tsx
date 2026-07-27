@@ -5,6 +5,7 @@ import ResearchCreation from "./pages/ResearchCreation";
 import AgentExecution from "./pages/AgentExecution";
 import KnowledgeExplorer from "./pages/KnowledgeExplorer";
 import FinalReview from "./pages/FinalReview";
+import MemoryManager from "./pages/MemoryManager";
 import Layout from "./components/Layout";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/Toast";
@@ -21,6 +22,7 @@ function App() {
               <Route path="/execution" element={<AgentExecution />} />
               <Route path="/explorer" element={<KnowledgeExplorer />} />
               <Route path="/review" element={<FinalReview />} />
+              <Route path="/memory" element={<MemoryManager />} />
               <Route path="*" element={<Navigate to="/" />} />
             </Routes>
           </Layout>
