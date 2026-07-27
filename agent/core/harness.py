@@ -427,10 +427,10 @@ class Harness:
         def _orchestrator_progress(stage: str, msg: str, detail: Optional[dict]) -> None:
             self.current_stage = stage
             self.current_message = msg
-            # Sync papers from orchestrator as soon as they're available
-            # (avoids race where WebSocket polls get_task_info() before _sync_orchestrator_state)
-            if stage in ("retrieval", "analysis", "feedback") and self._orchestrator._papers:
-                self._papers = list(self._orchestrator._papers)
+            # Sync all orchestrator state to the Harness so the WebSocket / HTTP
+            # polling endpoints see real-time data for every stage (plan, papers,
+            # analysis, sections, validation, queries).
+            self._sync_orchestrator_state()
             if on_progress:
                 on_progress(stage, msg, detail)
 
