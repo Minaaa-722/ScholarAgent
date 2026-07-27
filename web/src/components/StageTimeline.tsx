@@ -96,6 +96,7 @@ function markdownToHtml(text: string): string {
 const SCROLLABLE_CONTENT_STYLE: React.CSSProperties = {
   maxHeight: "350px",
   overflowY: "auto",
+  overflowX: "hidden",
   paddingRight: "8px",
 };
 
