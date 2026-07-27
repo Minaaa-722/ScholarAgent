@@ -177,9 +177,6 @@ function StageArtifact({
     case "planning":
       return details.plan ? (
         <Card title="📋 研究计划">
-          <p className="text-secondary mb-sm">
-            共 {details.plan.section_count} 个章节/要点
-          </p>
           <div
             className="artifact-content"
             style={{
