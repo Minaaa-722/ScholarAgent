@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { getSurveyStatus, restartSurvey } from "../api/client";
+import { getSurveyStatus, restartSurvey, getHistory } from "../api/client";
+import type { HistoryItem } from "../api/client";
 import Card from "../components/Card";
 import Button from "../components/Button";
 import Badge from "../components/Badge";
@@ -10,7 +11,9 @@ import EmptyState from "../components/EmptyState";
 export default function Dashboard() {
   const navigate = useNavigate();
   const [currentTask, setCurrentTask] = useState<any>(null);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const [restarting, setRestarting] = useState(false);
   const [restartError, setRestartError] = useState<string | null>(null);
 
@@ -36,6 +39,11 @@ export default function Dashboard() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+
+    getHistory()
+      .then((data) => setHistory(data))
+      .catch(() => {})
+      .finally(() => setHistoryLoading(false));
   }, []);
 
   if (loading) {
@@ -122,6 +130,43 @@ export default function Dashboard() {
           <Link to="/create">
             <Button>+ New Research Task</Button>
           </Link>
+        </div>
+      )}
+
+      {/* History section */}
+      {!historyLoading && history.length > 0 && (
+        <div style={{ marginTop: "var(--space-lg)" }}>
+          <h2 style={{ fontSize: "var(--font-size-lg)", marginBottom: "var(--space-sm)" }}>
+            History ({history.length})
+          </h2>
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
+            {history.map((item) => (
+              <div
+                key={item.id}
+                onClick={() => navigate(`/history/${item.id}`)}
+                style={{ cursor: "pointer" }}
+              >
+                <Card
+                  title={item.topic}
+                  headerRight={
+                    <Badge color={item.status === "complete" ? "green" : item.status === "error" ? "red" : "gray"}>
+                      {item.status}
+                    </Badge>
+                  }
+                  style={{ maxWidth: 400 }}
+                >
+                  <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)" }}>
+                    {item.goal ? item.goal.slice(0, 100) + (item.goal.length > 100 ? "…" : "") : "No goal specified"}
+                  </p>
+                  <div style={{ display: "flex", gap: "0.8rem", marginTop: "0.3rem", fontSize: "var(--font-size-xs)", color: "var(--color-text-tertiary)" }}>
+                    <span>{item.paper_count} papers</span>
+                    <span>{item.rounds} round{item.rounds !== 1 ? "s" : ""}</span>
+                    <span>{item.timestamp}</span>
+                  </div>
+                </Card>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
