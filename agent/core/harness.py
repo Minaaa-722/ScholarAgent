@@ -259,7 +259,7 @@ class Harness:
             }
         if self._papers:
             paper_list = []
-            for p in self._papers[:10]:
+            for p in self._papers:
                 authors = p.get("authors", [])[:3]
                 author_str = ", ".join(authors) if authors else "Unknown"
                 if len(p.get("authors", [])) > 3:
@@ -270,6 +270,7 @@ class Harness:
                     "year": p.get("year", ""),
                     "citations": p.get("citation_count", 0),
                     "source": "arxiv" if p.get("arxiv_id") else "semantic_scholar",
+                    "url": p.get("url", ""),
                 })
             details["papers"] = {
                 "total": len(self._papers),
@@ -280,7 +281,7 @@ class Harness:
         if self._analysis:
             details["analysis"] = {
                 "summary": "Paper analysis completed",
-                "preview": self._analysis[:300],
+                "preview": self._analysis,
             }
         if self._draft_sections:
             details["sections"] = self._draft_sections
