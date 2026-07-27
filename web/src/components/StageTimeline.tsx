@@ -48,6 +48,20 @@ function getStageStatus(
   return "pending";
 }
 
+/** Check if the execution details contain data for a given stage */
+function stageHasData(stage: string, details: ExecutionDetails | null): boolean {
+  if (!details) return false;
+  switch (stage) {
+    case "planning":      return !!details.plan;
+    case "retrieval":     return !!(details.search_queries?.length || details.papers);
+    case "analysis":      return !!details.analysis;
+    case "writing":       return !!(details.sections?.length);
+    case "validation":    return !!(details.validation && Object.keys(details.validation).length > 0);
+    case "format_repair": return true; // static text, always show
+    default:              return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // StageArtifact — renders the correct artifact card for each stage
 // ---------------------------------------------------------------------------
@@ -421,28 +435,32 @@ function StageEntry({
           <StageArtifact stage={stage} details={executionDetails} />
         )}
         {status === "active" && pipelineRunning && (
-          <div
-            style={{
-              background: "var(--color-primary-light)",
-              borderRadius: "var(--radius-lg)",
-              padding: "1rem",
-              borderLeft: "3px solid var(--color-primary)",
-            }}
-          >
-            <LoadingSkeleton variant="card" />
-            {currentMessage && (
-              <p
-                style={{
-                  margin: "0.5rem 0 0",
-                  fontSize: "var(--font-size-sm)",
-                  color: "var(--color-text-secondary)",
-                  fontStyle: "italic",
-                }}
-              >
-                {currentMessage}
-              </p>
-            )}
-          </div>
+          stageHasData(stage, executionDetails) ? (
+            <StageArtifact stage={stage} details={executionDetails} />
+          ) : (
+            <div
+              style={{
+                background: "var(--color-primary-light)",
+                borderRadius: "var(--radius-lg)",
+                padding: "1rem",
+                borderLeft: "3px solid var(--color-primary)",
+              }}
+            >
+              <LoadingSkeleton variant="card" />
+              {currentMessage && (
+                <p
+                  style={{
+                    margin: "0.5rem 0 0",
+                    fontSize: "var(--font-size-sm)",
+                    color: "var(--color-text-secondary)",
+                    fontStyle: "italic",
+                  }}
+                >
+                  {currentMessage}
+                </p>
+              )}
+            </div>
+          )
         )}
         {status === "active" && !pipelineRunning && (
           <StageArtifact stage={stage} details={executionDetails} />
