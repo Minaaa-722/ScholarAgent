@@ -105,22 +105,34 @@ export default function Dashboard() {
 
       {/* Onboarding feature cards — shown when no task exists */}
       {!currentTask && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--space-md)", marginTop: "var(--space-lg)" }}>
-          <Card title="🔍 Multi-Source Search">
-            <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)" }}>
-              Searches arXiv, Semantic Scholar, and Google Scholar automatically.
-            </p>
-          </Card>
-          <Card title="✅ Quality Validation">
-            <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)" }}>
-              5-dimension quality check with auto-correction.
-            </p>
-          </Card>
-          <Card title="📝 CVPR Format">
-            <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)" }}>
-              Outputs in CVPR LaTeX format with BibTeX references.
-            </p>
-          </Card>
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))",
+          gap: "24px",
+          width: "100%",
+          margin: "12px 0 32px",
+        }}>
+          <div style={{ minHeight: "160px", height: "100%", boxSizing: "border-box" }}>
+            <Card title="🔍 Multi-Source Search" style={{ marginBottom: 0 }}>
+              <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)" }}>
+                Searches arXiv, Semantic Scholar, and Google Scholar automatically.
+              </p>
+            </Card>
+          </div>
+          <div style={{ minHeight: "160px", height: "100%", boxSizing: "border-box" }}>
+            <Card title="✅ Quality Validation" style={{ marginBottom: 0 }}>
+              <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)" }}>
+                5-dimension quality check with auto-correction.
+              </p>
+            </Card>
+          </div>
+          <div style={{ minHeight: "160px", height: "100%", boxSizing: "border-box" }}>
+            <Card title="📝 CVPR Format" style={{ marginBottom: 0 }}>
+              <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)" }}>
+                Outputs in CVPR LaTeX format with BibTeX references.
+              </p>
+            </Card>
+          </div>
         </div>
       )}
 
@@ -148,16 +160,16 @@ export default function Dashboard() {
           </h2>
           <div style={{
             display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: "20px",
+            gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))",
+            gap: "24px",
             width: "100%",
-            padding: "10px 0",
+            margin: "12px 0 32px",
           }}>
             {history.map((item) => (
               <div
                 key={item.id}
                 onClick={() => navigate(`/history/${item.id}`)}
-                style={{ cursor: "pointer" }}
+                style={{ cursor: "pointer", minHeight: "160px", height: "100%", boxSizing: "border-box" }}
               >
                 <Card
                   title={item.topic}
