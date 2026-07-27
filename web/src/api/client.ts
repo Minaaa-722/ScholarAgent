@@ -53,3 +53,8 @@ export async function getExecutionLog() {
   const res = await fetch(`${API_BASE}/api/survey/log`);
   return res.json();
 }
+
+export async function getAutoLoadPreferences() {
+  const res = await fetch(`${API_BASE}/api/memory/auto-load`);
+  return res.json();
+}
