@@ -82,6 +82,51 @@ export async function clearMemory() {
   return res.json();
 }
 
+export interface PaperItem {
+  title: string;
+  authors: string;
+  year: string;
+  citations: number;
+  source: string;
+  paper_index: number;
+}
+
+export interface PaperListResponse {
+  papers: PaperItem[];
+  total: number;
+}
+
+export async function getPapers(): Promise<PaperListResponse> {
+  const res = await fetch(`${API_BASE}/api/survey/papers`);
+  if (!res.ok) throw new Error("Failed to fetch papers");
+  return res.json();
+}
+
+export async function getPaperGraph(): Promise<{ nodes: GraphNode[]; links: GraphLink[] }> {
+  const res = await fetch(`${API_BASE}/api/survey/papers/graph`);
+  if (!res.ok) throw new Error("Failed to fetch paper graph");
+  return res.json();
+}
+
+export interface GraphNode {
+  id: number;
+  label: string;
+  group: string;
+  size: number;
+}
+
+export interface GraphLink {
+  source: number;
+  target: number;
+  weight: number;
+}
+
+export async function getPaperDetail(index: number): Promise<PaperItem> {
+  const res = await fetch(`${API_BASE}/api/survey/papers/${index}`);
+  if (!res.ok) throw new Error("Paper not found");
+  return res.json();
+}
+
 export async function getCredentials() {
   const res = await fetch(`${API_BASE}/api/credentials`);
   return res.json();
