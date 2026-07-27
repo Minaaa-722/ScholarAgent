@@ -4,6 +4,7 @@
   "private": true,
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.1",
+    "d3": "^7.9.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.23.1",
@@ -16,6 +17,7 @@
     "preview": "vite preview"
   },
   "devDependencies": {
+    "@types/d3": "^7.4.3",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3"
   }
