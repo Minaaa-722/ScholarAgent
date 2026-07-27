@@ -1,184 +1,143 @@
-import React, { useEffect, useState, useRef } from "react";
-import { getExecutionLog, getPaper, getSurveyStatus } from "../api/client";
-
-interface LogEntry {
-  stage: string;
-  timestamp: string;
-  [key: string]: unknown;
-}
-
-const STAGE_COLORS: Record<string, string> = {
-  PLANNING: "#1976d2",
-  RETRIEVAL: "#7b1fa2",
-  ANALYSIS: "#e65100",
-  WRITING: "#2e7d32",
-  VALIDATION: "#c62828",
-  FEEDBACK: "#f57f17",
-  ERROR: "#b71c1c",
-};
+import React, { useEffect, useState, useCallback } from "react";
+import { getPapers, getPaperGraph, getPaperDetail, PaperItem, GraphNode, GraphLink } from "../api/client";
+import PaperTable from "../components/PaperTable";
+import PaperGraph from "../components/PaperGraph";
+import PaperDetail from "../components/PaperDetail";
+import Card from "../components/Card";
+import Button from "../components/Button";
 
 export default function KnowledgeExplorer() {
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [paper, setPaper] = useState<any>(null);
-  const [taskInfo, setTaskInfo] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Papers state
+  const [papers, setPapers] = useState<PaperItem[]>([]);
+  const [papersLoading, setPapersLoading] = useState(true);
+  const [papersError, setPapersError] = useState<string | null>(null);
 
-  const fetchData = async () => {
-    try {
-      const [logData, paperData, statusData] = await Promise.all([
-        getExecutionLog(), getPaper(), getSurveyStatus(),
-      ]);
-      setLogs(logData.execution_log || []);
-      setPaper(paperData);
-      setTaskInfo(statusData);
-      setLoading(false);
+  // Graph state
+  const [graphNodes, setGraphNodes] = useState<GraphNode[]>([]);
+  const [graphLinks, setGraphLinks] = useState<GraphLink[]>([]);
+  const [graphLoading, setGraphLoading] = useState(true);
+  const [graphError, setGraphError] = useState<string | null>(null);
 
-      // Stop polling when pipeline is done and paper is ready
-      if (!statusData?.pipeline_running && paperData?.paper) {
-        if (timerRef.current) {
-          clearInterval(timerRef.current);
-          timerRef.current = null;
-        }
-      }
-    } catch {
-      // ignore
-    }
-  };
+  // Selection state
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [detailPaper, setDetailPaper] = useState<PaperItem | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
+  // Initial load
   useEffect(() => {
-    fetchData();
-    timerRef.current = setInterval(fetchData, 3000);
+    let cancelled = false;
 
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
+    async function load() {
+      try {
+        const [paperResp, graphResp] = await Promise.all([
+          getPapers(),
+          getPaperGraph(),
+        ]);
+        if (cancelled) return;
+        setPapers(paperResp.papers);
+        setPapersLoading(false);
+        setGraphNodes(graphResp.nodes);
+        setGraphLinks(graphResp.links);
+        setGraphLoading(false);
+      } catch (err) {
+        if (cancelled) return;
+        setPapersError("Failed to load papers");
+        setPapersLoading(false);
+        setGraphError("Failed to load graph");
+        setGraphLoading(false);
+      }
+    }
+
+    load();
+    return () => { cancelled = true; };
   }, []);
 
-  if (loading) {
-    return <div><h2>Knowledge Explorer</h2><p style={{ color: "#999" }}>Loading execution data…</p></div>;
-  }
+  // Handle paper selection
+  const handleSelect = useCallback(async (index: number) => {
+    setSelectedIndex(index);
+    setDetailLoading(true);
+    setDetailError(null);
+    try {
+      const paper = await getPaperDetail(index);
+      setDetailPaper(paper);
+    } catch {
+      setDetailError("Failed to load paper details");
+      setDetailPaper(null);
+    } finally {
+      setDetailLoading(false);
+    }
+  }, []);
 
-  const topic = paper?.task?.topic || taskInfo?.topic;
+  const handleCloseDetail = useCallback(() => {
+    setSelectedIndex(null);
+    setDetailPaper(null);
+    setDetailError(null);
+  }, []);
 
   return (
     <div>
       <h2>Knowledge Explorer</h2>
+      <p style={{ color: "var(--color-text-secondary)", marginBottom: "var(--space-lg)", fontSize: "var(--font-size-sm)" }}>
+        Browse retrieved papers, explore the citation network, and view paper metadata.
+      </p>
 
-      {!topic ? (
-        <p style={{ color: "#999" }}>No research task has been started yet.</p>
-      ) : (
-        <>
-          {/* Topic header */}
-          <div style={{
-            background: "linear-gradient(135deg, #1a1a2e, #16213e)",
-            color: "#fff", borderRadius: 8, padding: "1rem 1.5rem", marginBottom: "1.5rem",
-          }}>
-            <h3 style={{ margin: 0 }}>{topic}</h3>
-            <p style={{ margin: "0.3rem 0 0", opacity: 0.8, fontSize: "0.9rem" }}>
-              Status: {taskInfo?.status || paper?.status || "—"}
-              {taskInfo?.pipeline_running && (
-                <span style={{ color: "#64b5f6" }}>
-                  {" | "}Running: {taskInfo.current_stage} — {taskInfo.current_message}
-                </span>
-              )}
-              {paper?.rounds != null && ` | Writing rounds: ${paper.rounds}`}
-              {paper?.has_warnings && <span style={{ color: "#ffa726" }}> | Has warnings</span>}
-            </p>
-          </div>
-
-          {/* Two-column layout */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>
-            {/* Left: Execution Log */}
-            <div>
-              <h3 style={{ marginTop: 0 }}>Execution Log</h3>
-              {logs.length === 0 ? (
-                <p style={{ color: "#999" }}>No execution log entries yet.</p>
-              ) : (
-                <div style={{ maxHeight: 500, overflowY: "auto" }}>
-                  {logs.map((entry, i) => {
-                    const color = STAGE_COLORS[entry.stage] || "#666";
-                    const isSelected = selectedLog === entry;
-                    return (
-                      <div
-                        key={i}
-                        onClick={() => setSelectedLog(isSelected ? null : entry)}
-                        style={{
-                          padding: "0.6rem 0.8rem", marginBottom: "0.3rem",
-                          borderRadius: 6, cursor: "pointer",
-                          background: isSelected ? "#e3f2fd" : "#fafafa",
-                          border: `1px solid ${isSelected ? "#1976d2" : "#eee"}`,
-                          transition: "all 0.2s",
-                        }}
-                      >
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                          <span style={{
-                            background: color, color: "#fff", borderRadius: 4,
-                            padding: "0.15rem 0.5rem", fontSize: "0.75rem", fontWeight: 600,
-                          }}>
-                            {entry.stage}
-                          </span>
-                          <span style={{ color: "#999", fontSize: "0.8rem" }}>
-                            {entry.timestamp}
-                          </span>
-                        </div>
-                        {isSelected && (
-                          <pre style={{
-                            marginTop: "0.5rem", marginBottom: 0, fontSize: "0.8rem",
-                            whiteSpace: "pre-wrap", color: "#333",
-                            background: "#f5f5f5", padding: "0.5rem", borderRadius: 4,
-                          }}>
-                            {JSON.stringify(entry, null, 2)}
-                          </pre>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Right: Paper Summary / Metadata */}
-            <div>
-              <h3 style={{ marginTop: 0 }}>Paper Summary</h3>
-              {paper?.paper ? (
-                <div style={{ background: "#fff", borderRadius: 8, padding: "1rem", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
-                  <p style={{ color: "#666", fontSize: "0.9rem", marginBottom: "0.5rem" }}>
-                    Paper length: <strong>{(paper.paper.length / 1000).toFixed(1)}k chars</strong>
-                  </p>
-                  <p style={{ color: "#666", fontSize: "0.9rem", marginBottom: "0.5rem" }}>
-                    Status: <strong>{paper.status}</strong>
-                  </p>
-                  {paper.rounds != null && (
-                    <p style={{ color: "#666", fontSize: "0.9rem", marginBottom: "0.5rem" }}>
-                      Writing rounds: <strong>{paper.rounds}</strong>
-                    </p>
-                  )}
-                  <div style={{
-                    background: "#f5f5f5", borderRadius: 6, padding: "0.8rem",
-                    marginTop: "0.5rem", maxHeight: 300, overflowY: "auto",
-                    fontFamily: "'Times New Roman', Times, serif",
-                    fontSize: "0.85rem", lineHeight: 1.5, whiteSpace: "pre-wrap",
-                  }}>
-                    {paper.paper.substring(0, 2000)}
-                    {paper.paper.length > 2000 && <span style={{ color: "#999" }}>… [truncated]</span>}
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <p style={{ color: "#999" }}>Paper not yet generated.</p>
-                  {taskInfo?.pipeline_running && (
-                    <p style={{ color: "#1976d2", fontSize: "0.9rem" }}>
-                      Pipeline is running — auto-refreshing…
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </>
+      {/* Export button */}
+      {!papersLoading && papers.length > 0 && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "var(--space-md)" }}>
+          <Button onClick={() => window.open("/api/survey/papers/export", "_blank")}>
+            ⬇ Export CSV
+          </Button>
+        </div>
       )}
+
+      {/* Summary bar */}
+      {!papersLoading && papers.length > 0 && (
+        <div style={{ display: "flex", gap: "var(--space-md)", marginBottom: "var(--space-lg)" }}>
+          <Card padding="var(--space-sm) var(--space-md)" style={{ flex: 1, textAlign: "center" }}>
+            <div style={{ fontSize: "var(--font-size-xl)", fontWeight: "var(--font-weight-bold)", color: "var(--color-primary)" }}>{papers.length}</div>
+            <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-secondary)" }}>Papers</div>
+          </Card>
+          <Card padding="var(--space-sm) var(--space-md)" style={{ flex: 1, textAlign: "center" }}>
+            <div style={{ fontSize: "var(--font-size-xl)", fontWeight: "var(--font-weight-bold)", color: "var(--color-success)" }}>{graphNodes.length}</div>
+            <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-secondary)" }}>Graph Nodes</div>
+          </Card>
+          <Card padding="var(--space-sm) var(--space-md)" style={{ flex: 1, textAlign: "center" }}>
+            <div style={{ fontSize: "var(--font-size-xl)", fontWeight: "var(--font-weight-bold)", color: "var(--color-warning)" }}>{graphLinks.length}</div>
+            <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-secondary)" }}>Connections</div>
+          </Card>
+        </div>
+      )}
+
+      {/* Three-column layout */}
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 2fr 1.5fr", gap: "var(--space-lg)", alignItems: "start" }}>
+        {/* Left: Paper Table */}
+        <PaperTable
+          papers={papers}
+          loading={papersLoading}
+          error={papersError}
+          onSelect={handleSelect}
+          selectedIndex={selectedIndex}
+        />
+
+        {/* Center: Citation Graph */}
+        <PaperGraph
+          nodes={graphNodes}
+          links={graphLinks}
+          loading={graphLoading}
+          error={graphError}
+          onSelect={handleSelect}
+          selectedId={selectedIndex}
+        />
+
+        {/* Right: Paper Detail */}
+        <PaperDetail
+          paper={detailPaper}
+          loading={detailLoading}
+          error={detailError}
+          onClose={handleCloseDetail}
+        />
+      </div>
     </div>
   );
 }
