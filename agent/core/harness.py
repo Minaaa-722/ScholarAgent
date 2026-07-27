@@ -456,6 +456,7 @@ class Harness:
             "has_warnings": self.has_warnings,
             "task": self.get_task_info(),
             "execution_log": self.execution_log,
+            "papers": self._papers,
         }
         if result.latex_repair_log:
             result_dict["latex_repair_log"] = result.latex_repair_log
