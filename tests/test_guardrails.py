@@ -74,3 +74,52 @@ def test_output_std_allows_formal_language():
     ctx = {"text": "This paper presents a novel approach to the problem."}
     result = guard.check(ctx)
     assert result.verdict == GuardrailVerdict.PASS
+
+
+def test_guardrail_manager_empty():
+    """Test GuardrailManager with empty guardrail list."""
+    from agent.guardrails.manager import GuardrailManager
+    manager = GuardrailManager(guardrails=[])
+    assert manager.check_all({"text": "test"}) == []
+    assert manager.filter_papers([{"title": "Test"}]) == [{"title": "Test"}]
+
+
+def test_guardrail_manager_check_all():
+    """Test GuardrailManager.check_all runs all guardrails."""
+    from agent.guardrails.manager import GuardrailManager
+    manager = GuardrailManager()
+    results = manager.check_all({"text": "This is a formal paper with citations [@ref]"})
+    assert len(results) >= 2
+    # All should pass for clean input
+    assert all(r.verdict == GuardrailVerdict.PASS for r in results)
+
+
+def test_guardrail_manager_filter_papers():
+    """Test GuardrailManager.filter_papers removes blacklisted sources."""
+    from agent.guardrails.manager import GuardrailManager
+    from agent.guardrails.source_filter import SourceFilter
+    manager = GuardrailManager(guardrails=[
+        SourceFilter(blacklist=["predatory"]),
+    ])
+    papers = [
+        {"title": "Good Paper", "journal": "cvpr"},
+        {"title": "Bad Paper", "journal": "predatory-journal"},
+    ]
+    filtered = manager.filter_papers(papers)
+    assert len(filtered) == 1
+    assert filtered[0]["title"] == "Good Paper"
+
+
+def test_guardrail_manager_check_tool_call():
+    """Test GuardrailManager.check_tool_call runs OpSafety and RateLimit."""
+    from agent.guardrails.manager import GuardrailManager
+    from agent.guardrails.op_safety import OpSafety
+    from agent.guardrails.rate_limit import RateLimit
+    manager = GuardrailManager(guardrails=[
+        OpSafety(),
+        RateLimit(max_calls=100, window_seconds=60),
+    ])
+    result = manager.check_tool_call("ls", {"command": "ls -la"})
+    assert result.verdict == GuardrailVerdict.PASS
+    result = manager.check_tool_call("rm", {"command": "rm -rf /"})
+    assert result.verdict == GuardrailVerdict.REQUIRE_APPROVAL

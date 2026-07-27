@@ -78,3 +78,42 @@ def test_persistent_memory_clear_all():
     mem.set("key2", "val2")
     mem.clear_all()
     assert mem.get_all() == []
+
+
+def test_memory_integration_load_preferences():
+    """Test MemoryIntegration.load_preferences returns existing preferences."""
+    from agent.memory.integration import MemoryIntegration
+    mem = MemoryIntegration()
+    mem.persistent = PersistentMemory(db_path=":memory:")
+    mem.persistent.set("year_start", "2020")
+    prefs = mem.load_preferences(["year_start", "year_end", "max_papers"])
+    assert prefs.get("year_start") == "2020"
+    assert "year_end" not in prefs
+    assert "max_papers" not in prefs
+
+
+def test_memory_integration_save_task_history():
+    """Test MemoryIntegration.save_task_history stores and rotates."""
+    from agent.memory.integration import MemoryIntegration
+    from agent.core.pipeline import TaskInfo
+
+    mem = MemoryIntegration()
+    mem.session.clear()
+    task = TaskInfo(topic="Test", keywords=["ai"], goal="Goal")
+    mem.save_task_history(task, {"status": "complete"})
+    history = mem.get_task_history()
+    assert len(history) == 1
+    assert history[0]["topic"] == "Test"
+    assert history[0]["status"] == "complete"
+
+
+def test_memory_integration_preference_crud():
+    """Test MemoryIntegration preference CRUD via persistent memory."""
+    from agent.memory.integration import MemoryIntegration
+    from agent.memory.persistent import PersistentMemory
+
+    mem = MemoryIntegration()
+    mem.persistent = PersistentMemory(db_path=":memory:")
+    mem.set_preference("theme", "dark")
+    assert mem.get_preference("theme") == "dark"
+    assert mem.get_preference("nonexistent", "default") == "default"
