@@ -92,19 +92,68 @@ def test_memory_integration_load_preferences():
     assert "max_papers" not in prefs
 
 
-def test_memory_integration_save_task_history():
-    """Test MemoryIntegration.save_task_history stores and rotates."""
+def test_memory_integration_save_task_history_with_papers():
+    """Test that save_task_history stores papers and final_paper separately."""
     from agent.memory.integration import MemoryIntegration
     from agent.core.pipeline import TaskInfo
 
     mem = MemoryIntegration()
     mem.session.clear()
     task = TaskInfo(topic="Test", keywords=["ai"], goal="Goal")
-    mem.save_task_history(task, {"status": "complete"})
+    raw_papers = [
+        {"title": "Paper One", "authors": ["Alice"], "year": "2023", "citation_count": 10, "arxiv_id": "2301.001"},
+        {"title": "Paper Two", "authors": ["Bob", "Charlie"], "year": "2024", "citation_count": 5, "source": "semantic_scholar"},
+    ]
+    result = {
+        "status": "complete",
+        "paper": "\\section{Full Paper}\nContent here.",
+        "papers": raw_papers,
+        "rounds": 2,
+        "has_warnings": False,
+    }
+    mem.save_task_history(task, result)
     history = mem.get_task_history()
     assert len(history) == 1
-    assert history[0]["topic"] == "Test"
-    assert history[0]["status"] == "complete"
+    entry = history[0]
+    assert "id" in entry
+    assert len(entry["id"]) == 8
+    assert entry["topic"] == "Test"
+    assert entry["papers"] == [
+        {"title": "Paper One", "authors": "Alice", "year": "2023", "citations": 10, "source": "arxiv"},
+        {"title": "Paper Two", "authors": "Bob, Charlie", "year": "2024", "citations": 5, "source": "semantic_scholar"},
+    ]
+    assert entry["rounds"] == 2
+    # Verify final_paper is stored separately
+    paper_path = os.path.join(mem.session._storage_dir, "papers", f"{entry['id']}.tex")
+    assert os.path.exists(paper_path)
+    with open(paper_path, "r", encoding="utf-8") as f:
+        assert f.read() == "\\section{Full Paper}\nContent here."
+
+
+def test_memory_integration_save_task_history_rotates():
+    """Test that rolling window keeps max 20 entries."""
+    from agent.memory.integration import MemoryIntegration
+    from agent.core.pipeline import TaskInfo
+
+    mem = MemoryIntegration()
+    mem.session.clear()
+    for i in range(22):
+        task = TaskInfo(topic=f"Task {i}", keywords=[], goal="")
+        mem.save_task_history(task, {"status": "complete", "paper": "", "papers": []})
+    history = mem.get_task_history()
+    assert len(history) == 20
+    # Oldest entries should be evicted (Task 0, Task 1)
+    assert history[0]["topic"] == "Task 2"
+    assert history[-1]["topic"] == "Task 21"
+
+
+def test_memory_integration_get_task_history_empty():
+    """Test that get_task_history returns empty list when no history."""
+    from agent.memory.integration import MemoryIntegration
+
+    mem = MemoryIntegration()
+    mem.session.clear()
+    assert mem.get_task_history() == []
 
 
 def test_memory_integration_preference_crud():
