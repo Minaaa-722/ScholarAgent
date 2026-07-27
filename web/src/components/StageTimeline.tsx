@@ -92,6 +92,13 @@ function markdownToHtml(text: string): string {
   return blocks.join("\n");
 }
 
+/** Shared style for scrollable card content areas */
+const SCROLLABLE_CONTENT_STYLE: React.CSSProperties = {
+  maxHeight: "350px",
+  overflowY: "auto",
+  paddingRight: "8px",
+};
+
 export interface PaperInfo {
   title: string;
   authors: string;
@@ -172,24 +179,22 @@ function StageArtifact({
           <p className="text-secondary mb-sm">
             共 {details.plan.section_count} 个章节/要点
           </p>
-          {details.plan.preview.map((line, i) => (
-            <p
-              key={i}
-              style={{
-                margin: "0.2rem 0",
-                paddingLeft: "0.5rem",
-                borderLeft: "2px solid var(--color-primary)",
-                fontSize: "var(--font-size-sm)",
-              }}
-            >
-              {line
-                .replace(/^\*\*(.+)\*\*$/, '$1')
-                .replace(/^###\s*/, '')
-                .replace(/^##\s*/, '')
-                .replace(/^#\s*/, '')
-                .replace(/^- /, '• ')}
-            </p>
-          ))}
+          <div style={SCROLLABLE_CONTENT_STYLE}>
+            {details.plan.preview.map((line, i) => (
+              <div
+                key={i}
+                style={{
+                  margin: "0.2rem 0",
+                  paddingLeft: "0.5rem",
+                  borderLeft: "2px solid var(--color-primary)",
+                  fontSize: "var(--font-size-sm)",
+                }}
+                dangerouslySetInnerHTML={{
+                  __html: markdownToHtml(line),
+                }}
+              />
+            ))}
+          </div>
         </Card>
       ) : (
         <p className="text-disabled" style={{ fontSize: "var(--font-size-sm)" }}>
@@ -230,7 +235,7 @@ function StageArtifact({
             <Card
               title={`📄 检索到的论文（共 ${details.papers.total} 篇）`}
             >
-              <div>
+              <div style={SCROLLABLE_CONTENT_STYLE}>
                 {details.papers.list.map((p, i) => (
                   <div
                     key={i}
@@ -289,6 +294,7 @@ function StageArtifact({
           <div
             className="artifact-content"
             style={{
+              ...SCROLLABLE_CONTENT_STYLE,
               color: "var(--color-text-secondary)",
               fontSize: "var(--font-size-sm)",
               lineHeight: 1.7,
@@ -309,20 +315,22 @@ function StageArtifact({
     case "writing":
       return details.sections && details.sections.length > 0 ? (
         <Card title="📑 论文结构">
-          {details.sections.map((s, i) => (
-            <div
-              key={i}
-              style={{
-                padding: "0.3rem 0",
-                paddingLeft: s.level === 0 ? "0" : "1.5rem",
-                fontWeight: s.level === 0 ? 600 : 400,
-                fontSize: "var(--font-size-sm)",
-              }}
-            >
-              {s.level === 0 ? "▸ " : "  ◦ "}
-              {s.title}
-            </div>
-          ))}
+          <div style={SCROLLABLE_CONTENT_STYLE}>
+            {details.sections.map((s, i) => (
+              <div
+                key={i}
+                style={{
+                  padding: "0.3rem 0",
+                  paddingLeft: s.level === 0 ? "0" : "1.5rem",
+                  fontWeight: s.level === 0 ? 600 : 400,
+                  fontSize: "var(--font-size-sm)",
+                }}
+              >
+                {s.level === 0 ? "▸ " : "  ◦ "}
+                {s.title}
+              </div>
+            ))}
+          </div>
         </Card>
       ) : (
         <p className="text-disabled" style={{ fontSize: "var(--font-size-sm)" }}>
@@ -334,7 +342,8 @@ function StageArtifact({
       return details.validation &&
         Object.keys(details.validation).length > 0 ? (
         <Card title="✅ 质量验证">
-          {Object.entries(details.validation).map(([name, v]) => (
+          <div style={SCROLLABLE_CONTENT_STYLE}>
+            {Object.entries(details.validation).map(([name, v]) => (
             <div
               key={name}
               style={{
@@ -394,6 +403,7 @@ function StageArtifact({
               )}
             </div>
           ))}
+          </div>
         </Card>
       ) : (
         <p className="text-disabled" style={{ fontSize: "var(--font-size-sm)" }}>
