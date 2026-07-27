@@ -47,6 +47,7 @@ def test_orchestrator_run_pipeline_returns_result():
         state=state,
         feedback_queue=[],
         feedback_lock=__import__("threading").Lock(),
+        feedback_history=[],
     )
 
     assert isinstance(result, PipelineResult)

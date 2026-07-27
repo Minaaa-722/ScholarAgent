@@ -7,6 +7,7 @@ from typing import Any, Callable, Optional
 
 from agent.core.state import AgentState, StateMachine
 from agent.core.llm import LLMBase
+from agent.core.pipeline import PipelineOrchestrator, PipelineResult
 from agent.feedback.base import ValidationResult
 from agent.feedback.aggregator import FeedbackAggregator
 from agent.feedback.repair_generator import RepairGenerator
@@ -17,7 +18,11 @@ from agent.feedback.detect_hallucination import HallucinationDetector
 from agent.feedback.polish_language import LanguagePolisher
 from agent.feedback.latex_repair import LatexFormatRepair
 from agent.tools.retrieval import ArxivSearch, SemanticScholarSearch, MergeResults
-from agent.tools.processing import SortByCitation, FormatBibtex
+from agent.tools.processing import SortByCitation, FormatBibtex, PdfDownload, PdfParse, Dedup
+from agent.tools.auxiliary import WebSearch, ShellExec
+from agent.tools.registry import ToolRegistry
+from agent.guardrails.manager import GuardrailManager
+from agent.memory.integration import MemoryIntegration
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +136,7 @@ class Harness:
             HallucinationDetector(),
             LanguagePolisher(),
         ]
+        # Legacy tool instances (kept for backward compatibility)
         self._arxiv_search = ArxivSearch()
         self._semantic_scholar = SemanticScholarSearch()
         self._merge = MergeResults()
@@ -158,6 +164,40 @@ class Harness:
         self._retrieved_queries: list[str] = []
         self._pending_expansions: list[str] = []
         self._pending_revisions: list[str] = []
+
+        # ---- New: ToolRegistry, Guardrails, Memory, Orchestrator ----
+        # ToolRegistry — register all tools
+        self._tool_registry = ToolRegistry()
+        self._tool_registry.register(self._arxiv_search)
+        self._tool_registry.register(self._semantic_scholar)
+        self._tool_registry.register(self._merge)
+        self._tool_registry.register(self._sort)
+        self._tool_registry.register(self._bibtex)
+        self._tool_registry.register(PdfDownload())
+        self._tool_registry.register(PdfParse())
+        self._tool_registry.register(Dedup())
+        self._tool_registry.register(WebSearch())
+        self._tool_registry.register(ShellExec())
+
+        # Guardrails
+        self._guardrail_manager = GuardrailManager()
+
+        # Memory integration
+        self._memory_integration = MemoryIntegration()
+
+        # Interrupt event (shared between Harness and PipelineOrchestrator)
+        self._interrupt_event = threading.Event()
+
+        # PipelineOrchestrator — the new pipeline engine
+        self._orchestrator = PipelineOrchestrator(
+            llm=llm,
+            tools=self._tool_registry,
+            validators=self._validators,
+            guardrails=self._guardrail_manager,
+            config=config,
+            latex_repair=LatexFormatRepair(),
+        )
+        self._orchestrator.set_interrupt_event(self._interrupt_event)
 
     # ------------------------------------------------------------------
     # Public API
@@ -188,6 +228,20 @@ class Harness:
         self._retrieved_queries = []
         self._pending_expansions = []
         self._pending_revisions = []
+        # Reset orchestrator state too
+        self._orchestrator.execution_log = []
+        self._orchestrator._pipeline_retry_count = 0
+        self._orchestrator._last_failed_stage = None
+        self._orchestrator._error_message = ""
+        self._orchestrator._plan = ""
+        self._orchestrator._papers = []
+        self._orchestrator._analysis = ""
+        self._orchestrator._draft_sections = []
+        self._orchestrator._validation_scores = {}
+        self._orchestrator._retrieved_queries = []
+        self._orchestrator._pending_expansions = []
+        self._orchestrator._pending_revisions = []
+        self._orchestrator.latex_repair_log = None
         # Reset state machine if in terminal state (e.g. COMPLETE from previous run)
         if self.state.is_terminal():
             self.state = StateMachine()
@@ -286,9 +340,11 @@ class Harness:
 
     def interrupt(self) -> None:
         self.state.interrupt()
+        self._interrupt_event.set()
 
     def resume(self) -> None:
         self.state.resume()
+        self._interrupt_event.clear()
 
     def submit_human_feedback(self, category: str, content: str) -> dict:
         """外部 API 调用此方法注入反馈"""
@@ -361,97 +417,68 @@ class Harness:
     # Pipeline stages (private)
     # ------------------------------------------------------------------
     def _pipeline(self, on_progress: Optional[ProgressCallback]) -> dict:
-        """Internal pipeline orchestration."""
-        # ---- Stage 1: PLANNING ----
-        self._progress(on_progress, "planning", "Generating research plan…")
-        plan = self._retry_on_error(
-                lambda: self._generate_plan(), AgentState.PLANNING, on_progress)
-        self._log("PLANNING", {"plan": plan[:300] if plan else ""})
-        self.state.transition_to(AgentState.RETRIEVAL)
-        self._check_human_feedback(on_progress)
+        """Internal pipeline orchestration — delegates to PipelineOrchestrator.
 
-        # ---- Stage 2: RETRIEVAL ----
-        self._progress(on_progress, "retrieval", "Searching arXiv and Semantic Scholar…")
-        papers = self._retry_on_error(
-                lambda: self._retrieve_papers(plan), AgentState.RETRIEVAL, on_progress)
-        self._log("RETRIEVAL", {"paper_count": len(papers)})
-        self.state.transition_to(AgentState.ANALYSIS)
-        self._check_human_feedback(on_progress)
+        The orchestrator handles stage execution, retry logic, validation,
+        human feedback, and format repair.  After it returns, we sync its
+        state back to the Harness for the API / frontend.
+        """
+        # Wrapper progress callback that updates Harness state too
+        def _orchestrator_progress(stage: str, msg: str, detail: Optional[dict]) -> None:
+            self.current_stage = stage
+            self.current_message = msg
+            # Sync papers from orchestrator as soon as they're available
+            # (avoids race where WebSocket polls get_task_info() before _sync_orchestrator_state)
+            if stage in ("retrieval", "analysis", "feedback") and self._orchestrator._papers:
+                self._papers = list(self._orchestrator._papers)
+            if on_progress:
+                on_progress(stage, msg, detail)
 
-        # ---- Stage 3: ANALYSIS ----
-        self._progress(on_progress, "analysis", "Analyzing retrieved papers…")
-        analysis = self._retry_on_error(
-                lambda: self._analyze_papers(papers, plan), AgentState.ANALYSIS, on_progress)
-        self._log("ANALYSIS", {"analysis_summary": (analysis or "")[:300]})
-        self.state.transition_to(AgentState.WRITING)
-        self._check_human_feedback(on_progress)
+        # Run the pipeline via orchestrator
+        result: PipelineResult = self._orchestrator.run_pipeline(
+            task=self.task,
+            state=self.state,
+            feedback_queue=self.feedback_queue,
+            feedback_lock=self._feedback_lock,
+            feedback_history=self.feedback_history,
+            on_progress=_orchestrator_progress,
+        )
 
-        # ---- Stage 4-6: WRITING + VALIDATION loop ----
-        rounds = 0
-        final_draft = ""
-        while rounds <= self.config.max_retries:
-            self._check_human_feedback(on_progress)
-            # 4. WRITING
-            self._progress(
-                on_progress, "writing",
-                f"Writing survey draft (round {rounds + 1})…",
-            )
-            draft = self._retry_on_error(
-                lambda: self._write_survey(analysis, plan, papers, rounds),
-                AgentState.WRITING, on_progress)
-            # ---- Format Repair (NEW: CVPR format post-processing) ----
-            self._progress(
-                on_progress, "format_repair",
-                "Applying CVPR format repair rules…",
-            )
-            draft = self._format_repair(draft)
-            final_draft = draft
-            self._log("WRITING", {"round": rounds, "length": len(draft)})
-            self.state.transition_to(AgentState.VALIDATION)
+        # Sync orchestrator state back to Harness
+        self._sync_orchestrator_state()
 
-            # 5. VALIDATION (after format repair)
-            self._progress(on_progress, "validation", "Running 5-dimension quality validation on CVPR-formatted draft…")
-            results = self._run_validators(draft)
-            report = self._aggregator.aggregate(results)
-            self._log("VALIDATION", {
-                "round": rounds,
-                "score": round(report.overall_score, 3),
-                "passed": report.overall_passed,
-                "failures": report.failed_validators,
-            })
+        # Build result dict (matching the old _pipeline return format)
+        result_dict = {
+            "status": result.status,
+            "paper": result.paper,
+            "rounds": result.rounds,
+            "retry_count": self.retry_count,
+            "has_warnings": self.has_warnings,
+            "task": self.get_task_info(),
+            "execution_log": self.execution_log,
+        }
+        if result.latex_repair_log:
+            result_dict["latex_repair_log"] = result.latex_repair_log
 
-            if report.overall_passed:
-                self.state.transition_to(AgentState.COMPLETE)
-                self._progress(on_progress, "complete", "All quality checks passed!")
-                return self._result(final_draft, "complete", rounds)
+        # Save task history via memory integration
+        if self.task:
+            self._memory_integration.save_task_history(self.task, result_dict)
 
-            # 6. FEEDBACK / repair
-            repairs = self._repair_generator.generate(results)
-            self._log("FEEDBACK", {"round": rounds, "repairs": repairs})
+        return result_dict
 
-            if rounds >= self.config.max_retries:
-                self.has_warnings = True
-                self.state.transition_to(AgentState.COMPLETE)
-                self._progress(
-                    on_progress, "complete",
-                    f"Max retries ({self.config.max_retries}) reached. Completing with warnings.",
-                )
-                return self._result(final_draft, "complete_with_warnings", rounds)
-
-            # Prepare for next iteration
-            self.retry_count += 1
-            rounds += 1
-            self.state.transition_to(AgentState.WRITING)
-
-            # Regenerate analysis with repair context
-            analysis = self._retry_on_error(
-                lambda: self._incorporate_feedback(analysis, repairs, plan),
-                AgentState.FEEDBACK, on_progress)
-
-        # Should not reach here
-        self.has_warnings = True
-        self._safe_transition(AgentState.COMPLETE)
-        return self._result(final_draft, "complete_with_warnings", rounds)
+    def _sync_orchestrator_state(self) -> None:
+        """Copy pipeline state from the orchestrator back to the Harness."""
+        self._papers = list(self._orchestrator._papers)
+        self._plan = self._orchestrator._plan
+        self._analysis = self._orchestrator._analysis
+        self._draft_sections = list(self._orchestrator._draft_sections)
+        self._validation_scores = dict(self._orchestrator._validation_scores)
+        self._retrieved_queries = list(self._orchestrator._retrieved_queries)
+        self.execution_log = list(self._orchestrator.execution_log)
+        self.latex_repair_log = self._orchestrator.latex_repair_log
+        self._pipeline_retry_count = self._orchestrator._pipeline_retry_count
+        self._last_failed_stage = self._orchestrator._last_failed_stage
+        self._error_message = self._orchestrator._error_message
 
     # ------------------------------------------------------------------
     # LLM-powered stage helpers
@@ -885,6 +912,7 @@ class Harness:
         self._pipeline_retry_count = 0
         self._last_failed_stage = None
         self._error_message = ""
+        self._orchestrator.reset_error_state()
 
         self.run_async(
             topic=self.task.topic,

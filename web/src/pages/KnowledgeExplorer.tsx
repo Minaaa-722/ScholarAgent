@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { getPapers, getPaperGraph, getPaperDetail, PaperItem, GraphNode, GraphLink } from "../api/client";
 import PaperTable from "../components/PaperTable";
 import PaperGraph from "../components/PaperGraph";
@@ -24,34 +24,48 @@ export default function KnowledgeExplorer() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
 
-  // Initial load
-  useEffect(() => {
-    let cancelled = false;
+  // Polling ref
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-    async function load() {
-      try {
-        const [paperResp, graphResp] = await Promise.all([
-          getPapers(),
-          getPaperGraph(),
-        ]);
-        if (cancelled) return;
-        setPapers(paperResp.papers);
-        setPapersLoading(false);
-        setGraphNodes(graphResp.nodes);
-        setGraphLinks(graphResp.links);
-        setGraphLoading(false);
-      } catch (err) {
-        if (cancelled) return;
-        setPapersError("Failed to load papers");
-        setPapersLoading(false);
-        setGraphError("Failed to load graph");
-        setGraphLoading(false);
+  // Load data (used both for initial load and polling)
+  const loadData = useCallback(async () => {
+    try {
+      const [paperResp, graphResp] = await Promise.all([
+        getPapers(),
+        getPaperGraph(),
+      ]);
+      setPapers(paperResp.papers);
+      setPapersLoading(false);
+      setGraphNodes(graphResp.nodes);
+      setGraphLinks(graphResp.links);
+      setGraphLoading(false);
+      // Stop polling once we have data
+      if (paperResp.papers.length > 0 && pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
       }
+      // If no papers yet, start polling every 3s
+      if (paperResp.papers.length === 0 && !pollTimerRef.current) {
+        pollTimerRef.current = setInterval(loadData, 3000);
+      }
+    } catch (err) {
+      setPapersError("Failed to load papers");
+      setPapersLoading(false);
+      setGraphError("Failed to load graph");
+      setGraphLoading(false);
     }
-
-    load();
-    return () => { cancelled = true; };
   }, []);
+
+  // Initial load + polling until papers arrive
+  useEffect(() => {
+    loadData();
+    return () => {
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
+  }, [loadData]);
 
   // Handle paper selection
   const handleSelect = useCallback(async (index: number) => {

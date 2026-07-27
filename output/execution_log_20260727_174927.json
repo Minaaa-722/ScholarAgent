@@ -1,0 +1,31 @@
+[
+  {
+    "stage": "PLANNING",
+    "timestamp": "2026-07-27T17:47:32",
+    "plan": "# Efficient Vision Transformers for Edge Deployment: A Survey Outline (CVPR-Format, 2020–2026)\n\n## 1. Introduction\n- **Motivation**: Vision Transformers (ViTs) have achieved state-of-the-art accuracy on many vision tasks, but their high computational cost (e.g., quadratic attention complexity, large"
+  },
+  {
+    "stage": "RETRIEVAL",
+    "timestamp": "2026-07-27T17:48:13",
+    "paper_count": 20
+  },
+  {
+    "stage": "ANALYSIS",
+    "timestamp": "2026-07-27T17:48:38",
+    "analysis_summary": "Based on the retrieved papers, the analysis focuses on those directly relevant to efficient vision transformers (ViTs) for edge deployment. Papers [7] (CNN-based compression), [10] (split computing), [14] (CNN face verification), and [19] (MobileNetV3) are peripheral—they address edge deployment but"
+  },
+  {
+    "stage": "WRITING",
+    "timestamp": "2026-07-27T17:49:27",
+    "round": 0,
+    "length": 20922
+  },
+  {
+    "stage": "VALIDATION",
+    "timestamp": "2026-07-27T17:49:27",
+    "round": 0,
+    "score": 1.0,
+    "passed": true,
+    "failures": []
+  }
+]

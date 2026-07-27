@@ -1,7 +1,7 @@
 import time
 from typing import Any, Optional
 
-from agent.core.harness import TaskInfo
+from agent.core.pipeline import TaskInfo
 from agent.memory.session import SessionMemory
 from agent.memory.persistent import PersistentMemory
 

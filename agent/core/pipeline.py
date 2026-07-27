@@ -85,6 +85,10 @@ class PipelineOrchestrator:
         self._pending_revisions: list[str] = []
         self.latex_repair_log: Optional[Any] = None
 
+        # Progress tracking (read by Harness for API responses)
+        self.current_stage: str = ""
+        self.current_message: str = ""
+
         # Interrupt support
         self._interrupt_event: Optional[threading.Event] = None
 
@@ -115,6 +119,7 @@ class PipelineOrchestrator:
         state: StateMachine,
         feedback_queue: list,
         feedback_lock: threading.Lock,
+        feedback_history: list,
         on_progress: Optional[ProgressCallback] = None,
     ) -> PipelineResult:
         """Run the full survey-generation pipeline end-to-end."""
@@ -122,6 +127,7 @@ class PipelineOrchestrator:
         self._state = state
         self._feedback_queue = feedback_queue
         self._feedback_lock = feedback_lock
+        self._feedback_history = feedback_history
 
         # Reset pipeline state
         self.execution_log = []
@@ -137,6 +143,8 @@ class PipelineOrchestrator:
         self._pending_expansions = []
         self._pending_revisions = []
         self.latex_repair_log = None
+        self.current_stage = ""
+        self.current_message = ""
 
         try:
             return self._pipeline(on_progress)
@@ -598,8 +606,8 @@ class PipelineOrchestrator:
                 return
             feedback = self._feedback_queue.pop(0)
             feedback["status"] = "processing"
-            # We don't have feedback_history here — Harness owns it
-            # But we can append to the queue item
+            # Append to feedback_history (owned by Harness, referenced via self._feedback_history)
+            self._feedback_history.append(feedback)
 
         short = feedback["content"][:60]
         self._progress(on_progress, "feedback", f"Processing feedback ({feedback['category']}): {short}…")
@@ -617,7 +625,7 @@ class PipelineOrchestrator:
                     deduped.append(p)
             self._papers = deduped
             self._progress(on_progress, "analysis", "Re-analyzing with supplemented papers…")
-            self._analysis = self._analyze_papers(self._papers, self._plan)
+            self._analysis = self._analyze_papers(self._papers)
 
         elif feedback["category"] == "expand_section":
             self._pending_expansions.append(feedback["content"])

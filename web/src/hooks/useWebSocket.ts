@@ -6,18 +6,31 @@ interface WebSocketOptions {
   taskId?: string;
   onMessage: (data: any) => void;
   enabled?: boolean;
+  /** When this callback returns true, the WebSocket stops auto-reconnecting */
+  shouldStopReconnect?: () => boolean;
 }
 
-export function useWebSocket({ taskId = "current", onMessage, enabled = true }: WebSocketOptions) {
+export function useWebSocket({
+  taskId = "current",
+  onMessage,
+  enabled = true,
+  shouldStopReconnect,
+}: WebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const attemptRef = useRef(0);
   const [connected, setConnected] = useState(false);
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
+  const shouldStopRef = useRef(shouldStopReconnect);
+  shouldStopRef.current = shouldStopReconnect;
 
   const connect = useCallback(() => {
     if (!enabled) return;
+    // If the pipeline is done, don't reconnect
+    if (shouldStopRef.current && shouldStopRef.current()) {
+      return;
+    }
     attemptRef.current += 1;
     const ws = new WebSocket(`${API_BASE.replace("http", "ws")}/ws/stream/${taskId}`);
     wsRef.current = ws;
@@ -37,6 +50,10 @@ export function useWebSocket({ taskId = "current", onMessage, enabled = true }: 
     ws.onclose = () => {
       setConnected(false);
       wsRef.current = null;
+      // Don't reconnect if pipeline is done
+      if (shouldStopRef.current && shouldStopRef.current()) {
+        return;
+      }
       const delay = Math.min(2000 * Math.pow(2, attemptRef.current - 1), 30000);
       reconnectTimerRef.current = setTimeout(connect, delay);
     };
