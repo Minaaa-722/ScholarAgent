@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { getSurveyStatus, submitFeedback, restartSurvey, interruptSurvey, resumeSurvey } from "../api/client";
 import Button from "../components/Button";
 import Card from "../components/Card";
 import Badge from "../components/Badge";
-import LoadingSkeleton from "../components/LoadingSkeleton";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { useToast } from "../components/Toast";
 import { useWebSocket } from "../hooks/useWebSocket";
@@ -110,6 +110,8 @@ export default function AgentExecution() {
   const [showCancelDialog, setShowCancelDialog] = useState(false);
 
   const { showToast } = useToast();
+
+  const navigate = useNavigate();
 
   // WebSocket connection via hook — stop reconnecting once pipeline is done
   const { connected } = useWebSocket({
@@ -219,6 +221,85 @@ export default function AgentExecution() {
     && (progress?.status === "COMPLETE" || progress?.status === "ERROR");
   const pipelineRunning = progress?.pipeline_running === true;
   const isInterrupted = progress?.status === "INTERRUPTED";
+
+  const renderDefaultPage = () => (
+    <div>
+      {/* Hero section */}
+      <div style={{
+        background: "linear-gradient(135deg, var(--color-bg-dark), #16213e)",
+        color: "#fff", borderRadius: "var(--radius-lg)", padding: "2rem 1.5rem",
+        marginBottom: "1.5rem", textAlign: "center",
+      }}>
+        <div style={{ fontSize: "3rem", marginBottom: "0.5rem" }}>🚀</div>
+        <h2 style={{ margin: "0 0 0.3rem" }}>Agent Execution Pipeline</h2>
+        <p style={{ margin: "0 0 0.5rem", opacity: 0.8, fontSize: "var(--font-size-sm)" }}>
+          监控和管理你的文献综述自动化流程
+        </p>
+        <p style={{ margin: "0", opacity: 0.6, fontSize: "var(--font-size-xs)" }}>
+          当前没有正在执行的任务
+        </p>
+      </div>
+
+      {/* Pipeline overview */}
+      <div style={{
+        display: "flex", gap: "0.5rem", alignItems: "center",
+        justifyContent: "center", flexWrap: "wrap", marginBottom: "2rem",
+      }}>
+        {[
+          { icon: "📋", label: "Plan", desc: "制定检索计划" },
+          { icon: "🔍", label: "Search", desc: "多源文献检索" },
+          { icon: "📊", label: "Analyze", desc: "内容分析与提取" },
+          { icon: "✍️", label: "Write", desc: "综述文章撰写" },
+          { icon: "✅", label: "Validate", desc: "质量多维验证" },
+        ].map((stage, i) => (
+          <React.Fragment key={stage.label}>
+            <div style={{ textAlign: "center", padding: "0.5rem 1rem" }}>
+              <div style={{
+                background: "var(--color-primary)", color: "#fff",
+                borderRadius: "var(--radius-full)", padding: "0.5rem 1rem",
+                fontWeight: 600, fontSize: "var(--font-size-sm)",
+                whiteSpace: "nowrap", marginBottom: "0.3rem",
+              }}>
+                {stage.icon} {stage.label}
+              </div>
+              <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-secondary)" }}>
+                {stage.desc}
+              </div>
+            </div>
+            {i < 4 && (
+              <div style={{ color: "#ccc", fontSize: "1.5rem", marginBottom: "1.2rem" }}>→</div>
+            )}
+          </React.Fragment>
+        ))}
+      </div>
+
+      {/* Feature cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--space-md)", marginBottom: "2rem" }}>
+        <Card title="📡 实时监控">
+          <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)" }}>
+            实时查看各阶段执行进度、当前消息和详细执行数据
+          </p>
+        </Card>
+        <Card title="💬 交互反馈">
+          <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)" }}>
+            在执行过程中向 Agent 提供反馈，动态调整研究方向
+          </p>
+        </Card>
+        <Card title="✅ 质量验证">
+          <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)" }}>
+            5 维度质量验证与自动修正，确保综述质量
+          </p>
+        </Card>
+      </div>
+
+      {/* CTA button */}
+      <div style={{ textAlign: "center" }}>
+        <Button size="lg" onClick={() => navigate("/create")}>
+          🚀 开始新的研究任务
+        </Button>
+      </div>
+    </div>
+  );
 
   const renderStageChain = () => (
     <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", marginBottom: "1.5rem" }}>
@@ -405,9 +486,7 @@ export default function AgentExecution() {
   return (
     <div>
       <h2 className="page-title">Agent Execution</h2>
-      {!connected && !progress && (
-        <LoadingSkeleton variant="card" />
-      )}
+      {!connected && !progress && renderDefaultPage()}
 
       {progress && (
         <div>
