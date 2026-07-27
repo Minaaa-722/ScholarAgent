@@ -144,3 +144,40 @@ export async function clearCredential(key: string) {
   const res = await fetch(`${API_BASE}/api/credentials/${encodeURIComponent(key)}`, { method: "DELETE" });
   return res.json();
 }
+
+export interface HistoryItem {
+  id: string;
+  topic: string;
+  keywords: string[];
+  goal: string;
+  status: string;
+  timestamp: string;
+  paper_count: number;
+  has_warnings: boolean;
+  rounds: number;
+}
+
+export interface PaperInfo {
+  title: string;
+  authors: string;
+  year: string;
+  citations: number;
+  source: string;
+}
+
+export interface HistoryDetail extends HistoryItem {
+  papers: PaperInfo[];
+  final_paper: string;
+}
+
+export async function getHistory(): Promise<HistoryItem[]> {
+  const res = await fetch(`${API_BASE}/api/history`);
+  if (!res.ok) throw new Error("Failed to fetch history");
+  return res.json();
+}
+
+export async function getHistoryDetail(id: string): Promise<HistoryDetail> {
+  const res = await fetch(`${API_BASE}/api/history/${encodeURIComponent(id)}`);
+  if (!res.ok) throw new Error("History entry not found");
+  return res.json();
+}
