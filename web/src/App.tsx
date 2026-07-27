@@ -7,6 +7,7 @@ import KnowledgeExplorer from "./pages/KnowledgeExplorer";
 import FinalReview from "./pages/FinalReview";
 import MemoryManager from "./pages/MemoryManager";
 import Credentials from "./pages/Credentials";
+import HistoryDetail from "./pages/HistoryDetail";
 import Layout from "./components/Layout";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/Toast";
@@ -25,6 +26,7 @@ function App() {
               <Route path="/review" element={<FinalReview />} />
               <Route path="/memory" element={<MemoryManager />} />
               <Route path="/credentials" element={<Credentials />} />
+              <Route path="/history/:id" element={<HistoryDetail />} />
               <Route path="*" element={<Navigate to="/" />} />
             </Routes>
           </Layout>
