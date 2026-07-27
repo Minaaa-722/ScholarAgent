@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from agent.core.llm import OpenAILLM, MockLLM
 from agent.core.harness import Harness, HarnessConfig
-from api.routes import survey, feedback, progress, memory, credentials
+from api.routes import survey, feedback, progress, memory, credentials, history
 import os
 from pathlib import Path
 from dotenv import load_dotenv
@@ -35,6 +35,7 @@ app.include_router(feedback.router)
 app.include_router(progress.router)
 app.include_router(memory.router)
 app.include_router(credentials.router)
+app.include_router(history.router)
 
 
 @app.get("/api/health")

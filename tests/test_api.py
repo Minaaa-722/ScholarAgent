@@ -1,7 +1,8 @@
 import pytest
 from httpx import AsyncClient, ASGITransport
 from api.main import app
-from api.routes.survey import get_harness
+from api.routes.survey import get_harness as survey_get_harness
+from api.routes.history import get_harness as history_get_harness
 from agent.core.llm import MockLLM
 from agent.core.harness import Harness, HarnessConfig
 
@@ -15,7 +16,8 @@ def test_harness():
 
 @pytest.fixture
 def client(test_harness):
-    app.dependency_overrides[get_harness] = lambda: test_harness
+    app.dependency_overrides[survey_get_harness] = lambda: test_harness
+    app.dependency_overrides[history_get_harness] = lambda: test_harness
     transport = ASGITransport(app=app)
     return AsyncClient(transport=transport, base_url="http://test")
 
@@ -150,3 +152,77 @@ async def test_export_papers_csv(client, test_harness):
     assert "Title" in body
     assert "Paper One" in body
     assert "Alice" in body
+
+
+@pytest.mark.asyncio
+async def test_get_history_empty(client, test_harness):
+    """Returns empty list when no history exists."""
+    test_harness._memory_integration.session.clear()
+    response = await client.get("/api/history")
+    assert response.status_code == 200
+    data = response.json()
+    assert data == []
+
+
+@pytest.mark.asyncio
+async def test_get_history_with_data(client, test_harness):
+    """Returns history entries when tasks exist."""
+    from agent.core.pipeline import TaskInfo
+    mem = test_harness._memory_integration
+    mem.session.clear()
+    task = TaskInfo(topic="Test Topic", keywords=["ai"], goal="Goal")
+    result = {
+        "status": "complete",
+        "paper": "\\section{Paper}",
+        "papers": [
+            {"title": "Paper A", "authors": ["Alice"], "year": "2023", "citation_count": 10, "arxiv_id": "2301.001"},
+        ],
+        "rounds": 1,
+        "has_warnings": False,
+    }
+    mem.save_task_history(task, result)
+
+    response = await client.get("/api/history")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["topic"] == "Test Topic"
+    assert data[0]["paper_count"] == 1
+    assert "final_paper" not in data[0]  # Summary only
+
+
+@pytest.mark.asyncio
+async def test_get_history_detail(client, test_harness):
+    """Returns full detail for a specific history entry."""
+    from agent.core.pipeline import TaskInfo
+    mem = test_harness._memory_integration
+    mem.session.clear()
+    task = TaskInfo(topic="Detail Topic", keywords=["ml"], goal="Detail goal")
+    result = {
+        "status": "complete",
+        "paper": "\\section{Detail Paper}\nContent.",
+        "papers": [
+            {"title": "Paper A", "authors": ["Alice"], "year": "2023", "citation_count": 10, "arxiv_id": "2301.001"},
+        ],
+        "rounds": 2,
+        "has_warnings": True,
+    }
+    mem.save_task_history(task, result)
+    entry_id = mem.get_task_history()[0]["id"]
+
+    response = await client.get(f"/api/history/{entry_id}")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["topic"] == "Detail Topic"
+    assert data["final_paper"] == "\\section{Detail Paper}\nContent."
+    assert len(data["papers"]) == 1
+    assert data["papers"][0]["title"] == "Paper A"
+    assert data["rounds"] == 2
+    assert data["has_warnings"] is True
+
+
+@pytest.mark.asyncio
+async def test_get_history_detail_not_found(client):
+    """Returns 404 for non-existent UUID."""
+    response = await client.get("/api/history/nonexistent")
+    assert response.status_code == 404
