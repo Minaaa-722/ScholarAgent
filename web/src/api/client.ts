@@ -81,3 +81,21 @@ export async function clearMemory() {
   const res = await fetch(`${API_BASE}/api/memory`, { method: "DELETE" });
   return res.json();
 }
+
+export async function getCredentials() {
+  const res = await fetch(`${API_BASE}/api/credentials`);
+  return res.json();
+}
+
+export async function updateCredential(key: string, value: string) {
+  const res = await fetch(`${API_BASE}/api/credentials`, {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key, value }),
+  });
+  return res.json();
+}
+
+export async function clearCredential(key: string) {
+  const res = await fetch(`${API_BASE}/api/credentials/${encodeURIComponent(key)}`, { method: "DELETE" });
+  return res.json();
+}
