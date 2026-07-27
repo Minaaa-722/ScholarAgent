@@ -4,31 +4,92 @@ import LoadingSkeleton from "./LoadingSkeleton";
 
 /** Convert simple markdown patterns to readable HTML for display */
 function markdownToHtml(text: string): string {
-  const escaped = text
-    // Escape HTML entities first to prevent XSS
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  // Escape HTML entities first to prevent XSS
+  const escapeHtml = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-  return escaped
+  // Process inline formatting within a line
+  const renderInline = (s: string): string =>
+    escapeHtml(s)
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*(.+?)\*/g, "<em>$1</em>")
+      .replace(/`(.+?)`/g, "<code>$1</code>")
+      .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+
+  const lines = text.split("\n");
+  const blocks: string[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Code block (```)
+    if (/^```/.test(line)) {
+      const codeLines: string[] = [];
+      i++;
+      while (i < lines.length && !/^```/.test(lines[i])) {
+        codeLines.push(escapeHtml(lines[i]));
+        i++;
+      }
+      i++; // skip closing ```
+      blocks.push(`<pre><code>${codeLines.join("\n")}</code></pre>`);
+      continue;
+    }
+
     // Headings
-    .replace(/^#### (.+)$/gm, '<h5>$1</h5>')
-    .replace(/^### (.+)$/gm, '<h4>$1</h4>')
-    .replace(/^## (.+)$/gm, '<h3>$1</h3>')
-    .replace(/^# (.+)$/gm, '<h2>$1</h2>')
-    // Bold and italic
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    // Inline code
-    .replace(/`(.+?)`/g, '<code>$1</code>')
-    // Unordered lists
-    .replace(/^- (.+)$/gm, '• $1')
-    // Paragraph breaks (double newline)
-    .replace(/\n\n/g, '</p><p>')
-    // Single newlines within paragraphs
-    .replace(/\n/g, '<br/>')
-    // Wrap in paragraph tags
-    .replace(/^(.+)$/, '<p>$1</p>');
+    const headingMatch = line.match(/^(#{1,4})\s+(.+)$/);
+    if (headingMatch) {
+      const level = headingMatch[1].length;
+      const tag = `h${Math.min(level + 1, 5)}` as const;
+      blocks.push(`<${tag}>${renderInline(headingMatch[2])}</${tag}>`);
+      i++;
+      continue;
+    }
+
+    // Unordered list
+    if (/^[-*]\s/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^[-*]\s/.test(lines[i])) {
+        items.push(`<li>${renderInline(lines[i].replace(/^[-*]\s/, ""))}</li>`);
+        i++;
+      }
+      blocks.push(`<ul>${items.join("")}</ul>`);
+      continue;
+    }
+
+    // Ordered list
+    if (/^\d+\.\s/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^\d+\.\s/.test(lines[i])) {
+        items.push(`<li>${renderInline(lines[i].replace(/^\d+\.\s/, ""))}</li>`);
+        i++;
+      }
+      blocks.push(`<ol>${items.join("")}</ol>`);
+      continue;
+    }
+
+    // Horizontal rule
+    if (/^---+\s*$/.test(line)) {
+      blocks.push("<hr/>");
+      i++;
+      continue;
+    }
+
+    // Paragraph (collect blank-line-separated lines)
+    if (line.trim() === "") {
+      i++;
+      continue;
+    }
+
+    const paraLines: string[] = [];
+    while (i < lines.length && lines[i].trim() !== "" && !/^(#{1,4}\s|```|[-*]\s|\d+\.\s|---+\s*$)/.test(lines[i])) {
+      paraLines.push(renderInline(lines[i]));
+      i++;
+    }
+    blocks.push(`<p>${paraLines.join("<br/>")}</p>`);
+  }
+
+  return blocks.join("\n");
 }
 
 export interface PaperInfo {
