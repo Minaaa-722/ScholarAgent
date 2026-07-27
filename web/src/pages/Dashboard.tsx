@@ -1,9 +1,16 @@
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { getSurveyStatus, restartSurvey } from "../api/client";
+import Card from "../components/Card";
+import Button from "../components/Button";
+import Badge from "../components/Badge";
+import LoadingSkeleton from "../components/LoadingSkeleton";
+import EmptyState from "../components/EmptyState";
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [currentTask, setCurrentTask] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
   const [restarting, setRestarting] = useState(false);
   const [restartError, setRestartError] = useState<string | null>(null);
 
@@ -13,7 +20,6 @@ export default function Dashboard() {
     try {
       await restartSurvey();
       setCurrentTask(null);
-      // Re-fetch status
       const data = await getSurveyStatus();
       if (data.topic) setCurrentTask(data);
     } catch {
@@ -24,63 +30,100 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    getSurveyStatus().then((data) => { if (data.topic) setCurrentTask(data); });
+    getSurveyStatus()
+      .then((data) => {
+        if (data.topic) setCurrentTask(data);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
+
+  if (loading) {
+    return (
+      <div>
+        <h1 className="page-title">ScholarAgent</h1>
+        <LoadingSkeleton variant="card" />
+      </div>
+    );
+  }
 
   return (
     <div>
-      <h1>ScholarAgent</h1>
-      <p style={{ color: "#666", marginBottom: "2rem" }}>Automated Literature Review Agent</p>
-      <h2>Recent Research Tasks</h2>
-      {currentTask ? (
-        <div style={{ background: "#fff", borderRadius: 8, padding: "1.5rem",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.1)", marginBottom: "1rem", maxWidth: 400 }}>
-          <h3>{currentTask.topic}</h3>
-          <p>Status: {currentTask.status}</p>
+      <h1 className="page-title">ScholarAgent</h1>
+      <p className="text-secondary mb-lg">Automated Literature Review Agent</p>
+
+      {!currentTask ? (
+        <EmptyState
+          icon="🔬"
+          title="Welcome to ScholarAgent"
+          description="Your automated literature review assistant. Start by creating a new research task."
+          actionLabel="+ New Research Task"
+          onAction={() => navigate("/create")}
+        />
+      ) : (
+        <Card
+          title={currentTask.topic}
+          headerRight={<Badge color={currentTask.status === "COMPLETE" ? "green" : currentTask.status === "ERROR" ? "red" : "blue"}>{currentTask.status}</Badge>}
+          style={{ maxWidth: 400 }}
+        >
           {currentTask.status === "ERROR" && (
             <div style={{
-              background: "#ffebee", borderRadius: 6, padding: "0.8rem",
-              margin: "0.5rem 0", borderLeft: "3px solid #f44336",
+              background: "var(--color-danger-light)", borderRadius: "var(--radius-md)", padding: "0.8rem",
+              margin: "0.5rem 0", borderLeft: "3px solid var(--color-danger)",
             }}>
-              <p style={{ margin: 0, color: "#c62828", fontSize: "0.85rem" }}>
+              <p style={{ margin: 0, color: "var(--color-danger-dark)", fontSize: "var(--font-size-sm)" }}>
                 Error: {currentTask.error || "Unknown error"}
               </p>
-              <button
-                onClick={handleRestart}
-                disabled={restarting}
-                style={{
-                  marginTop: "0.5rem", padding: "0.4rem 1rem",
-                  background: restarting ? "#ccc" : "#f44336", color: "#fff",
-                  border: "none", borderRadius: 4, cursor: restarting ? "not-allowed" : "pointer",
-                  fontSize: "0.85rem",
-                }}
-              >
-                {restarting ? "重启中…" : "🔄 一键重启"}
-              </button>
-              {restartError && <p style={{ color: "#b71c1c", fontSize: "0.8rem" }}>{restartError}</p>}
+              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginTop: "0.5rem" }}>
+                <Button variant="danger" size="sm" onClick={handleRestart} loading={restarting}>
+                  🔄 一键重启
+                </Button>
+                {restartError && <span style={{ color: "var(--color-danger-dark)", fontSize: "var(--font-size-xs)" }}>{restartError}</span>}
+              </div>
             </div>
           )}
           {currentTask.pipeline_running && (
-            <p style={{ color: "#1976d2" }}>
+            <p style={{ color: "var(--color-primary)" }}>
               ▶ {currentTask.current_message || "Running…"}
             </p>
           )}
           <div style={{ display: "flex", gap: "1rem", marginTop: "0.5rem" }}>
             {currentTask.pipeline_running && (
-              <Link to="/execution" style={{ color: "#1976d2" }}>View Progress →</Link>
+              <Link to="/execution" style={{ color: "var(--color-primary)" }}>View Progress →</Link>
             )}
-            <Link to="/review" style={{ color: "#1976d2" }}>View Report →</Link>
+            <Link to="/review" style={{ color: "var(--color-primary)" }}>View Report →</Link>
           </div>
-        </div>
-      ) : (
-        <p style={{ color: "#999" }}>No recent tasks. Start a new research project!</p>
+        </Card>
       )}
-      <Link to="/create">
-        <button style={{ marginTop: "1rem", padding: "0.8rem 2rem", background: "#1976d2",
-          color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontSize: "1rem" }}>
-          + New Research Task
-        </button>
-      </Link>
+
+      {/* Onboarding feature cards — shown when no task exists */}
+      {!currentTask && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--space-md)", marginTop: "var(--space-lg)" }}>
+          <Card title="🔍 Multi-Source Search">
+            <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)" }}>
+              Searches arXiv, Semantic Scholar, and Google Scholar automatically.
+            </p>
+          </Card>
+          <Card title="✅ Quality Validation">
+            <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)" }}>
+              5-dimension quality check with auto-correction.
+            </p>
+          </Card>
+          <Card title="📝 CVPR Format">
+            <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)" }}>
+              Outputs in CVPR LaTeX format with BibTeX references.
+            </p>
+          </Card>
+        </div>
+      )}
+
+      {currentTask && (
+        <div style={{ marginTop: "var(--space-lg)" }}>
+          <Link to="/create">
+            <Button>+ New Research Task</Button>
+          </Link>
+        </div>
+      )}
     </div>
   );
 }
