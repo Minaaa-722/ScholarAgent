@@ -135,3 +135,18 @@ async def test_get_paper_not_found(client, test_harness):
     response = await client.get("/api/survey/papers/999")
     assert response.status_code == 404
     assert "detail" in response.json()
+
+
+@pytest.mark.asyncio
+async def test_export_papers_csv(client, test_harness):
+    """Returns CSV file with paper data."""
+    test_harness._papers = [
+        {"title": "Paper One", "authors": ["Alice"], "year": "2023", "citation_count": 10, "arxiv_id": "2301.001"},
+    ]
+    response = await client.get("/api/survey/papers/export")
+    assert response.status_code == 200
+    assert "text/csv" in response.headers["content-type"]
+    body = response.text
+    assert "Title" in body
+    assert "Paper One" in body
+    assert "Alice" in body

@@ -119,3 +119,35 @@ async def get_paper_detail(index: int, harness: Harness = Depends(get_harness)):
         source="arxiv" if p.get("arxiv_id") else p.get("source", "unknown"),
         paper_index=index,
     )
+
+
+@router.get("/papers/export")
+async def export_papers_csv(harness: Harness = Depends(get_harness)):
+    """Export papers as a CSV file (UTF-8 with BOM for Excel compatibility)."""
+    import csv, io
+    from fastapi.responses import StreamingResponse
+
+    info = harness.get_task_info()
+    papers_data = info.get("execution_details", {}).get("papers", {})
+    raw_list = papers_data.get("list", [])
+
+    output = io.StringIO()
+    output.write("﻿")  # BOM for Excel
+    writer = csv.writer(output)
+    writer.writerow(["Title", "Authors", "Year", "Citations", "Source"])
+
+    for p in raw_list:
+        writer.writerow([
+            p.get("title", ""),
+            p.get("authors", ""),
+            p.get("year", ""),
+            p.get("citations", 0),
+            p.get("source", ""),
+        ])
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=papers.csv"},
+    )
