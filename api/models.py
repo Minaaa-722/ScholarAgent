@@ -33,3 +33,35 @@ class FeedbackRequest(BaseModel):
 class MemoryUpdate(BaseModel):
     key: str
     value: str
+
+
+class PaperItem(BaseModel):
+    title: str
+    authors: str
+    year: str = ""
+    citations: int = 0
+    source: str = ""
+    paper_index: int = 0
+
+
+class PaperListResponse(BaseModel):
+    papers: list[PaperItem]
+    total: int
+
+
+class GraphNode(BaseModel):
+    id: int
+    label: str
+    group: str
+    size: int
+
+
+class GraphLink(BaseModel):
+    source: int
+    target: int
+    weight: int = 1
+
+
+class GraphResponse(BaseModel):
+    nodes: list[GraphNode]
+    links: list[GraphLink]

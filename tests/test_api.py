@@ -69,3 +69,69 @@ async def test_submit_feedback(client, test_harness):
         "content": "Add more papers on attention mechanisms",
     })
     assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_get_papers_empty(client, test_harness):
+    """Returns empty list when no papers exist."""
+    response = await client.get("/api/survey/papers")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["papers"] == []
+    assert data["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_get_papers_with_data(client, test_harness):
+    """Returns paper list when papers exist."""
+    test_harness._papers = [
+        {"title": "Paper One", "authors": ["Alice"], "year": "2023", "citation_count": 10, "arxiv_id": "2301.001"},
+        {"title": "Paper Two", "authors": ["Bob", "Charlie"], "year": "2024", "citation_count": 5, "source": "semantic_scholar"},
+    ]
+    response = await client.get("/api/survey/papers")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 2
+    assert data["papers"][0]["title"] == "Paper One"
+    assert data["papers"][0]["authors"] == "Alice"
+    assert data["papers"][0]["source"] == "arxiv"
+    assert data["papers"][1]["title"] == "Paper Two"
+    assert data["papers"][1]["source"] == "semantic_scholar"
+
+
+@pytest.mark.asyncio
+async def test_get_papers_graph(client, test_harness):
+    """Returns graph nodes and links."""
+    test_harness._papers = [
+        {"title": "Paper A", "authors": ["Alice"], "year": "2023", "citation_count": 15, "arxiv_id": "123"},
+        {"title": "Paper B", "authors": ["Bob"], "year": "2024", "citation_count": 3, "source": "semantic_scholar"},
+    ]
+    response = await client.get("/api/survey/papers/graph")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["nodes"]) == 2
+    assert data["nodes"][0]["label"] == "Paper A"
+    assert data["nodes"][0]["size"] == 15
+    assert data["nodes"][0]["group"] == "arxiv"
+    assert isinstance(data["links"], list)
+
+
+@pytest.mark.asyncio
+async def test_get_paper_by_index(client, test_harness):
+    """Returns a single paper by index."""
+    test_harness._papers = [
+        {"title": "Paper One", "authors": ["Alice"], "year": "2023", "citation_count": 10, "arxiv_id": "2301.001"},
+    ]
+    response = await client.get("/api/survey/papers/0")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["title"] == "Paper One"
+    assert data["paper_index"] == 0
+
+
+@pytest.mark.asyncio
+async def test_get_paper_not_found(client, test_harness):
+    """Returns 404 for out-of-range index."""
+    response = await client.get("/api/survey/papers/999")
+    assert response.status_code == 404
+    assert "detail" in response.json()

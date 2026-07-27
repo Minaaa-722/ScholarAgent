@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from api.models import SurveyRequest, SurveyResponse
+from api.models import SurveyRequest, SurveyResponse, PaperItem, PaperListResponse, GraphNode, GraphLink, GraphResponse
 from agent.core.harness import Harness
 
 router = APIRouter(prefix="/api/survey", tags=["survey"])
@@ -52,3 +52,70 @@ async def get_paper(harness: Harness = Depends(get_harness)):
 @router.get("/log")
 async def get_execution_log(harness: Harness = Depends(get_harness)):
     return {"execution_log": harness.get_execution_log()}
+
+
+@router.get("/papers", response_model=PaperListResponse)
+async def get_papers(harness: Harness = Depends(get_harness)):
+    """Return the list of retrieved papers."""
+    info = harness.get_task_info()
+    papers_data = info.get("execution_details", {}).get("papers", {})
+    raw_list = papers_data.get("list", [])
+    items = []
+    for idx, p in enumerate(raw_list):
+        items.append(PaperItem(
+            title=p.get("title", "Untitled"),
+            authors=p.get("authors", "Unknown"),
+            year=str(p.get("year", "")),
+            citations=p.get("citations", 0),
+            source=p.get("source", "unknown"),
+            paper_index=idx,
+        ))
+    return PaperListResponse(papers=items, total=papers_data.get("total", len(items)))
+
+
+@router.get("/papers/graph", response_model=GraphResponse)
+async def get_papers_graph(harness: Harness = Depends(get_harness)):
+    """Build a citation/co-authorship graph from the paper list."""
+    raw_papers = harness._papers if hasattr(harness, '_papers') else []
+    nodes = []
+    links = []
+    for idx, p in enumerate(raw_papers):
+        title = p.get("title", "Untitled")
+        source = "arxiv" if p.get("arxiv_id") else "semantic_scholar" if p.get("source") == "semantic_scholar" else "unknown"
+        citations = p.get("citation_count", 0) or 0
+        nodes.append(GraphNode(
+            id=idx,
+            label=title[:60],
+            group=source,
+            size=max(1, min(citations, 100)),
+        ))
+    # Create links between papers that share authors
+    for i, p1 in enumerate(raw_papers):
+        authors1 = set(a.lower() for a in p1.get("authors", []) if a)
+        if not authors1:
+            continue
+        for j in range(i + 1, len(raw_papers)):
+            p2 = raw_papers[j]
+            authors2 = set(a.lower() for a in p2.get("authors", []) if a)
+            shared = authors1 & authors2
+            if shared:
+                links.append(GraphLink(source=i, target=j, weight=len(shared)))
+    return GraphResponse(nodes=nodes, links=links)
+
+
+@router.get("/papers/{index:int}")
+async def get_paper_detail(index: int, harness: Harness = Depends(get_harness)):
+    """Return full metadata for a single paper by index."""
+    raw_papers = harness._papers if hasattr(harness, '_papers') else []
+    if index < 0 or index >= len(raw_papers):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Paper index {index} not found")
+    p = raw_papers[index]
+    return PaperItem(
+        title=p.get("title", "Untitled"),
+        authors=", ".join(p.get("authors", [])) if isinstance(p.get("authors"), list) else str(p.get("authors", "Unknown")),
+        year=str(p.get("year", "")),
+        citations=p.get("citation_count", 0) or 0,
+        source="arxiv" if p.get("arxiv_id") else p.get("source", "unknown"),
+        paper_index=index,
+    )
