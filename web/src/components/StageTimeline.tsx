@@ -2,12 +2,42 @@ import React from "react";
 import Card from "./Card";
 import LoadingSkeleton from "./LoadingSkeleton";
 
+/** Convert simple markdown patterns to readable HTML for display */
+function markdownToHtml(text: string): string {
+  const escaped = text
+    // Escape HTML entities first to prevent XSS
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+  return escaped
+    // Headings
+    .replace(/^#### (.+)$/gm, '<h5>$1</h5>')
+    .replace(/^### (.+)$/gm, '<h4>$1</h4>')
+    .replace(/^## (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^# (.+)$/gm, '<h2>$1</h2>')
+    // Bold and italic
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    // Inline code
+    .replace(/`(.+?)`/g, '<code>$1</code>')
+    // Unordered lists
+    .replace(/^- (.+)$/gm, '• $1')
+    // Paragraph breaks (double newline)
+    .replace(/\n\n/g, '</p><p>')
+    // Single newlines within paragraphs
+    .replace(/\n/g, '<br/>')
+    // Wrap in paragraph tags
+    .replace(/^(.+)$/, '<p>$1</p>');
+}
+
 export interface PaperInfo {
   title: string;
   authors: string;
   year: string | number;
   citations: number;
   source: string;
+  url?: string;       // optional link to the paper
 }
 
 export interface SectionInfo {
@@ -91,7 +121,12 @@ function StageArtifact({
                 fontSize: "var(--font-size-sm)",
               }}
             >
-              {line}
+              {line
+                .replace(/^\*\*(.+)\*\*$/, '$1')
+                .replace(/^###\s*/, '')
+                .replace(/^##\s*/, '')
+                .replace(/^#\s*/, '')
+                .replace(/^- /, '• ')}
             </p>
           ))}
         </Card>
@@ -134,20 +169,35 @@ function StageArtifact({
             <Card
               title={`📄 检索到的论文（共 ${details.papers.total} 篇）`}
             >
-              <div style={{ maxHeight: 300, overflowY: "auto" }}>
+              <div>
                 {details.papers.list.map((p, i) => (
                   <div
                     key={i}
                     style={{
-                      padding: "0.5rem",
-                      marginBottom: "0.3rem",
+                      padding: "0.6rem",
+                      marginBottom: "0.4rem",
                       background: "#fafafa",
                       borderRadius: "var(--radius-md)",
                       border: "1px solid var(--color-border-light)",
                     }}
                   >
                     <div style={{ fontWeight: 600, fontSize: "var(--font-size-sm)" }}>
-                      {p.title}
+                      {p.url ? (
+                        <a
+                          href={p.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            color: "var(--color-primary)",
+                            textDecoration: "none",
+                          }}
+                          title={p.url}
+                        >
+                          {p.title} ↗
+                        </a>
+                      ) : (
+                        p.title
+                      )}
                     </div>
                     <div
                       style={{
@@ -157,20 +207,10 @@ function StageArtifact({
                       }}
                     >
                       {p.authors} · {p.year} · 引用: {p.citations}
+                      {p.source && <span> · 来源: {p.source}</span>}
                     </div>
                   </div>
                 ))}
-                {details.papers.total > 10 && (
-                  <p
-                    className="text-disabled"
-                    style={{
-                      fontSize: "var(--font-size-sm)",
-                      textAlign: "center",
-                    }}
-                  >
-                    … 还有 {details.papers.total - 10} 篇
-                  </p>
-                )}
               </div>
             </Card>
           )}
@@ -185,17 +225,19 @@ function StageArtifact({
     case "analysis":
       return details.analysis ? (
         <Card title="🔬 论文分析">
-          <p
+          <div
+            className="artifact-content"
             style={{
               color: "var(--color-text-secondary)",
               fontSize: "var(--font-size-sm)",
-              whiteSpace: "pre-wrap",
+              lineHeight: 1.7,
               margin: 0,
-              lineHeight: 1.5,
+              overflowX: "auto",
             }}
-          >
-            {details.analysis.preview}
-          </p>
+            dangerouslySetInnerHTML={{
+              __html: markdownToHtml(details.analysis.preview),
+            }}
+          />
         </Card>
       ) : (
         <p className="text-disabled" style={{ fontSize: "var(--font-size-sm)" }}>
