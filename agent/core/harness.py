@@ -746,7 +746,7 @@ class Harness:
             r.validator_name: {
                 "score": r.score,
                 "passed": r.passed,
-                "message": (r.message or "")[:200],
+                "message": (r.repair_instructions or "")[:200],
             }
             for r in results
         }

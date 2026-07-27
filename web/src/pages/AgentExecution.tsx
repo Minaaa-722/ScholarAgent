@@ -526,7 +526,7 @@ export default function AgentExecution() {
         {progress.last_failed_stage && (
           <p style={{ margin: "0.3rem 0", color: "#b71c1c", fontSize: "0.9rem" }}>
             Failed at stage: <strong>{progress.last_failed_stage}</strong>
-            {progress.pipeline_retry_count > 0 && (
+            {progress.pipeline_retry_count != null && progress.pipeline_retry_count > 0 && (
               <span> (after {progress.pipeline_retry_count} attempt{progress.pipeline_retry_count > 1 ? "s" : ""})</span>
             )}
           </p>
