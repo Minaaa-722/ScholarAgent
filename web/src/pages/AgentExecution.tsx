@@ -7,6 +7,7 @@ import LoadingSkeleton from "../components/LoadingSkeleton";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { useToast } from "../components/Toast";
 import { useWebSocket } from "../hooks/useWebSocket";
+import StageTimeline from "../components/StageTimeline";
 
 const API_BASE = "http://localhost:8000";
 
@@ -88,14 +89,6 @@ function getStatusBadgeColor(status: string): "green" | "red" | "orange" | "blue
   return "gray";
 }
 
-function DetailCard({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <Card title={title}>
-      {children}
-    </Card>
-  );
-}
-
 export default function AgentExecution() {
   const [progress, setProgress] = useState<ProgressInfo | null>(null);
   const [taskStartedAt, setTaskStartedAt] = useState<string>("");
@@ -118,9 +111,15 @@ export default function AgentExecution() {
 
   const { showToast } = useToast();
 
-  // WebSocket connection via hook
+  // WebSocket connection via hook — stop reconnecting once pipeline is done
   const { connected } = useWebSocket({
     taskId: "current",
+    shouldStopReconnect: () => {
+      // Stop reconnecting once the pipeline has reached a terminal state
+      // and the WebSocket has delivered the final data
+      return progress?.pipeline_running === false
+        && (progress?.status === "COMPLETE" || progress?.status === "ERROR");
+    },
     onMessage: (data: ProgressInfo) => {
       setProgress(data);
       if (data.task_started_at) {
@@ -214,7 +213,10 @@ export default function AgentExecution() {
 
   const currentStage = progress?.current_stage || "";
   const stageIndex = STAGE_ORDER.indexOf(currentStage);
-  const pipelineFinished = !connected && progress?.pipeline_running === false;
+  const pipelineFinished = !connected
+    && progress?.pipeline_running === false
+    && progress?.task_started_at
+    && (progress?.status === "COMPLETE" || progress?.status === "ERROR");
   const pipelineRunning = progress?.pipeline_running === true;
   const isInterrupted = progress?.status === "INTERRUPTED";
 
@@ -274,128 +276,6 @@ export default function AgentExecution() {
       </div>
     ) : null
   );
-
-  const renderExecutionDetails = () => {
-    const details = progress?.execution_details;
-    if (!details) return null;
-
-    return (
-      <div style={{ display: "flex", flexDirection: "column", marginBottom: "1.5rem" }}>
-        {details.plan && (
-          <DetailCard title="📋 研究计划">
-            <p className="text-secondary mb-sm">共 {details.plan.section_count} 个章节/要点</p>
-            {details.plan.preview.map((line, i) => (
-              <p key={i} style={{ margin: "0.2rem 0", paddingLeft: "0.5rem",
-                borderLeft: "2px solid var(--color-primary)", fontSize: "var(--font-size-sm)" }}>
-                {line}
-              </p>
-            ))}
-          </DetailCard>
-        )}
-
-        {details.search_queries && (
-          <DetailCard title="🔍 搜索查询">
-            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-              {details.search_queries.map((q, i) => (
-                <span key={i} style={{
-                  background: "var(--color-primary-light)", padding: "0.3rem 0.8rem",
-                  borderRadius: "var(--radius-full)", fontSize: "var(--font-size-sm)", color: "var(--color-primary-dark)",
-                }}>
-                  {q}
-                </span>
-              ))}
-            </div>
-          </DetailCard>
-        )}
-
-        {details.papers && (
-          <DetailCard title={`📄 检索到的论文（共 ${details.papers.total} 篇）`}>
-            <div style={{ maxHeight: 300, overflowY: "auto" }}>
-              {details.papers.list.map((p, i) => (
-                <div key={i} style={{
-                  padding: "0.5rem", marginBottom: "0.3rem",
-                  background: "#fafafa", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border-light)",
-                }}>
-                  <div style={{ fontWeight: 600, fontSize: "var(--font-size-sm)" }}>{p.title}</div>
-                  <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-secondary)", marginTop: "0.2rem" }}>
-                    {p.authors} · {p.year} · 引用: {p.citations}
-                    <Badge color="blue">{p.source}</Badge>
-                  </div>
-                </div>
-              ))}
-              {details.papers.total > 10 && (
-                <p className="text-disabled" style={{ fontSize: "var(--font-size-sm)", textAlign: "center" }}>
-                  … 还有 {details.papers.total - 10} 篇
-                </p>
-              )}
-            </div>
-          </DetailCard>
-        )}
-
-        {details.analysis && (
-          <DetailCard title="🔬 论文分析">
-            <p style={{ color: "var(--color-text-secondary)", fontSize: "var(--font-size-sm)", whiteSpace: "pre-wrap",
-              margin: 0, lineHeight: 1.5 }}>
-              {details.analysis.preview}
-            </p>
-          </DetailCard>
-        )}
-
-        {details.sections && (
-          <DetailCard title="📑 论文结构">
-            {details.sections.map((s, i) => (
-              <div key={i} style={{
-                padding: "0.3rem 0", paddingLeft: s.level === 0 ? "0" : "1.5rem",
-                fontWeight: s.level === 0 ? 600 : 400, fontSize: "var(--font-size-sm)",
-              }}>
-                {s.level === 0 ? "▸ " : "  ◦ "}{s.title}
-              </div>
-            ))}
-          </DetailCard>
-        )}
-
-        {details.validation && (
-          <DetailCard title="✅ 质量验证">
-            {Object.entries(details.validation).map(([name, v]) => (
-              <div key={name} style={{
-                display: "flex", alignItems: "center", gap: "0.5rem",
-                padding: "0.3rem 0", borderBottom: "1px solid var(--color-border-light)",
-              }}>
-                <span style={{
-                  width: 8, height: 8, borderRadius: "50%",
-                  background: v.passed ? "var(--color-success)" : "var(--color-danger)",
-                  display: "inline-block", flexShrink: 0,
-                }} />
-                <span style={{ fontWeight: 500, minWidth: 140, fontSize: "var(--font-size-sm)" }}>{name}</span>
-                <Badge color={v.passed ? "green" : "red"}>{v.passed ? "通过" : "需改进"}</Badge>
-                {v.message && (
-                  <span className="text-secondary" style={{ fontSize: "var(--font-size-xs)", marginLeft: "0.3rem" }}>
-                    — {v.message}
-                  </span>
-                )}
-              </div>
-            ))}
-          </DetailCard>
-        )}
-
-        {!details.plan && !details.search_queries && !details.papers &&
-         !details.analysis && !details.sections && !details.validation && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-            <Card title="Keywords">
-              <p className="text-secondary" style={{ margin: "0.3rem 0 0" }}>
-                {progress?.keywords?.length ? progress.keywords.join(", ") : "—"}
-              </p>
-            </Card>
-            <Card title="Research Goal">
-              <p className="text-secondary" style={{ margin: "0.3rem 0 0", whiteSpace: "pre-wrap" }}>
-                {progress?.goal || "—"}
-              </p>
-            </Card>
-          </div>
-        )}
-      </div>
-    );
-  };
 
   const renderFeedbackPanel = () => (
     <Card title="向 Agent 提供反馈" style={{ border: "1px solid var(--color-border)" }}>
@@ -580,12 +460,28 @@ export default function AgentExecution() {
           {/* Two-column layout when running */}
           {pipelineRunning ? (
             <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "1.5rem" }}>
-              <div>{renderExecutionDetails()}</div>
+              <div>
+                <StageTimeline
+                  currentStage={currentStage}
+                  stageOrder={STAGE_ORDER}
+                  stageLabels={STAGE_LABELS}
+                  executionDetails={progress?.execution_details ?? null}
+                  currentMessage={progress?.current_message ?? ""}
+                  pipelineRunning={pipelineRunning}
+                />
+              </div>
               <div>{renderFeedbackPanel()}</div>
             </div>
           ) : (
             <div>
-              {renderExecutionDetails()}
+              <StageTimeline
+                currentStage={currentStage}
+                stageOrder={STAGE_ORDER}
+                stageLabels={STAGE_LABELS}
+                executionDetails={progress?.execution_details ?? null}
+                currentMessage={progress?.current_message ?? ""}
+                pipelineRunning={pipelineRunning}
+              />
               {renderErrorPanel()}
               {pipelineFinished && progress?.status !== "ERROR" && (
                 <div style={{
