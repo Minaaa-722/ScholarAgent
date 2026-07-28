@@ -94,10 +94,14 @@ function markdownToHtml(text: string): string {
 
 /** Shared style for scrollable card content areas */
 const SCROLLABLE_CONTENT_STYLE: React.CSSProperties = {
-  maxHeight: "350px",
   overflowY: "auto",
   overflowX: "hidden",
   paddingRight: "8px",
+  minHeight: 0,
+  flex: 1,
+  lineHeight: 1.7,
+  fontSize: "var(--font-size-sm)",
+  color: "var(--color-text-secondary)",
 };
 
 export interface PaperInfo {
@@ -176,27 +180,11 @@ function StageArtifact({
   switch (stage) {
     case "planning":
       return details.plan ? (
-        <Card title="📋 研究计划">
-          <p className="text-secondary mb-sm">
-            共 {details.plan.section_count} 个章节/要点
-          </p>
-          <div style={SCROLLABLE_CONTENT_STYLE}>
-            {details.plan.preview.map((line, i) => (
-              <div
-                key={i}
-                style={{
-                  margin: "0.2rem 0",
-                  paddingLeft: "0.5rem",
-                  borderLeft: "2px solid var(--color-primary)",
-                  fontSize: "var(--font-size-sm)",
-                }}
-                dangerouslySetInnerHTML={{
-                  __html: markdownToHtml(line),
-                }}
-              />
-            ))}
-          </div>
-        </Card>
+        <div style={{ maxHeight: "360px", display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <Card title="📋 研究计划">
+            <div style={SCROLLABLE_CONTENT_STYLE} dangerouslySetInnerHTML={{ __html: markdownToHtml(details.plan.preview.join("\n")) }} />
+          </Card>
+        </div>
       ) : (
         <p className="text-disabled" style={{ fontSize: "var(--font-size-sm)" }}>
           暂无计划数据
@@ -291,22 +279,11 @@ function StageArtifact({
 
     case "analysis":
       return details.analysis ? (
-        <Card title="🔬 论文分析">
-          <div
-            className="artifact-content"
-            style={{
-              ...SCROLLABLE_CONTENT_STYLE,
-              color: "var(--color-text-secondary)",
-              fontSize: "var(--font-size-sm)",
-              lineHeight: 1.7,
-              margin: 0,
-              overflowX: "auto",
-            }}
-            dangerouslySetInnerHTML={{
-              __html: markdownToHtml(details.analysis.preview),
-            }}
-          />
-        </Card>
+        <div style={{ maxHeight: "360px", display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <Card title="🔬 论文分析">
+            <div style={SCROLLABLE_CONTENT_STYLE} dangerouslySetInnerHTML={{ __html: markdownToHtml(details.analysis.preview) }} />
+          </Card>
+        </div>
       ) : (
         <p className="text-disabled" style={{ fontSize: "var(--font-size-sm)" }}>
           暂无分析数据
@@ -523,6 +500,7 @@ function StageEntry({
           flex: 1,
           marginLeft: "0.8rem",
           paddingBottom: isLast ? 0 : "0.5rem",
+          minHeight: 0,
         }}
       >
         {/* Stage header */}
