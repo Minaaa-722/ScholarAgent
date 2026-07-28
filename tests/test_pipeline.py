@@ -117,3 +117,99 @@ def test_guardrail_manager_with_empty_guardrails():
     manager = GuardrailManager(guardrails=[])
     result = manager.check_all({"text": "test"})
     assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Integration tests for new paper search tools
+# ---------------------------------------------------------------------------
+
+
+def test_all_search_tools_importable():
+    """All new tools should be importable without errors."""
+    from agent.tools.relevance import RelevanceFilter
+    from agent.tools.citation import CitationExpander
+    from agent.tools.venue import VenueLookup
+    from agent.tools.processing import CompositeRanker
+
+    assert RelevanceFilter().name == "relevance_filter"
+    assert CitationExpander().name == "citation_expand"
+    assert VenueLookup().name == "venue_lookup"
+    assert CompositeRanker().name == "composite_rank"
+
+
+def test_harness_config_new_fields():
+    """HarnessConfig should include new paper search fields."""
+    config = HarnessConfig()
+    assert hasattr(config, "relevance_threshold")
+    assert config.relevance_threshold == 3.0
+    assert hasattr(config, "citation_expand_top_k")
+    assert config.citation_expand_top_k == 5
+    assert hasattr(config, "citation_expand_per_paper")
+    assert config.citation_expand_per_paper == 10
+    assert hasattr(config, "composite_weights")
+    assert config.composite_weights["citation"] == 0.4
+    assert hasattr(config, "enable_dblp_lookup")
+    assert config.enable_dblp_lookup is True
+
+
+def test_tool_registry_contains_new_tools():
+    """ToolRegistry should have all new tools registered."""
+    from agent.tools.registry import ToolRegistry
+    from agent.tools.relevance import RelevanceFilter
+    from agent.tools.citation import CitationExpander
+    from agent.tools.venue import VenueLookup
+    from agent.tools.processing import CompositeRanker
+
+    registry = ToolRegistry()
+    registry.register(RelevanceFilter())
+    registry.register(CitationExpander())
+    registry.register(VenueLookup())
+    registry.register(CompositeRanker())
+
+    assert registry.get("relevance_filter") is not None
+    assert registry.get("citation_expand") is not None
+    assert registry.get("venue_lookup") is not None
+    assert registry.get("composite_rank") is not None
+
+
+def test_integration_relevance_filter_composite_rank():
+    """End-to-end: relevance filter followed by composite ranking."""
+    from agent.tools.relevance import RelevanceFilter
+    from agent.tools.processing import CompositeRanker
+
+    papers = [
+        {"title": "Deep Learning for Vision", "citation_count": 100, "venue": "CVPR"},
+        {"title": "Database Systems", "citation_count": 200, "venue": "SIGMOD"},
+        {"title": "Image Classification Methods", "citation_count": 50, "venue": ""},
+    ]
+    topic = "computer vision"
+
+    # Step 1: Relevance filter
+    llm_response = (
+        "Deep Learning for Vision | 5 | Core CV topic\n"
+        "Database Systems | 1 | Not related to vision\n"
+        "Image Classification Methods | 4 | Related sub-topic\n"
+    )
+    filter_result = RelevanceFilter().execute({
+        "papers": papers, "llm_response": llm_response, "threshold": 3.0,
+    })
+    assert filter_result.success
+    filtered = filter_result.data["papers"]
+    assert len(filtered) == 2  # Database Systems filtered out
+
+    # Step 2: Mark venues (simulating VenueLookup)
+    for p in filtered:
+        v = (p.get("venue") or "").lower()
+        if v in ("cvpr", "iccv", "eccv"):
+            p["is_top_venue"] = True
+        else:
+            p["is_top_venue"] = False
+
+    # Step 3: Composite ranking
+    rank_result = CompositeRanker().execute({"papers": filtered})
+    assert rank_result.success
+    ranked = rank_result.data["papers"]
+    assert len(ranked) == 2
+    # Deep Learning for Vision (citation=100, venue=top, relevance=5) should be first
+    assert ranked[0]["title"] == "Deep Learning for Vision"
+    assert "_composite_score" in ranked[0]

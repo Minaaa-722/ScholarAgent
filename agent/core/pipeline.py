@@ -10,6 +10,7 @@ from agent.core.state import AgentState, StateMachine
 from agent.core.llm import LLMBase, LLMResponse
 from agent.feedback.base import ValidationResult, Validator
 from agent.guardrails.manager import GuardrailManager
+from agent.tools.base import _dedup_by_title
 from agent.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,14 @@ class HarnessConfig:
     max_pipeline_retries: int = 2
     year_start: int = 2020
     year_end: int = 2026
+    # New: paper search improvement config
+    relevance_threshold: float = 3.0
+    citation_expand_top_k: int = 5
+    citation_expand_per_paper: int = 10
+    composite_weights: dict = field(default_factory=lambda: {
+        "citation": 0.4, "venue": 0.3, "relevance": 0.3,
+    })
+    enable_dblp_lookup: bool = True
 
 
 @dataclass
@@ -312,8 +321,11 @@ class PipelineOrchestrator:
         self._plan = resp.text
         return resp.text
 
-    def _retrieve_papers(self) -> list[dict]:
-        """Search arXiv and Semantic Scholar, merge and dedup results."""
+    def _search_seeds(self) -> list[dict]:
+        """Search arXiv and Semantic Scholar, merge and dedup results.
+
+        Returns the initial pool of papers before relevance filtering.
+        """
         topic = self._task.topic
         keywords = self._task.keywords or [topic]
 
@@ -375,14 +387,74 @@ class PipelineOrchestrator:
         merged = merge_tool.execute({"results": all_results}) if merge_tool else type('', (), {})()
         papers = merged.data.get("papers", []) if hasattr(merged, 'success') and merged.success else []
 
-        # Sort by citation count
-        sort_tool = self.tools.get("sort_by_citation")
-        if sort_tool:
-            sorted_res = sort_tool.execute({"papers": papers})
-            papers = sorted_res.data.get("papers", papers) if sorted_res.success else papers
-
-        self._papers = papers[:self.config.max_papers]
         self._retrieved_queries = queries
+        return papers
+
+    def _retrieve_papers(self) -> list[dict]:
+        """Search, filter, expand, and rank papers."""
+        # 1. Seed search
+        seeds = self._search_seeds()
+
+        # 2. Relevance filter (if available)
+        relevance_filter = self.tools.get("relevance_filter")
+        if relevance_filter and seeds:
+            sys_prompt = (
+                "You are a relevance judge for academic papers. "
+                f"Given the research topic: \"{self._task.topic}\"\n"
+                "Rate each paper's relevance on a scale of 1-5:\n"
+                "5 = directly addressing the core topic\n"
+                "4 = highly related, covers a key sub-topic\n"
+                "3 = somewhat related, but peripheral\n"
+                "2 = marginally related, tangentially connected\n"
+                "1 = not relevant\n\n"
+                "For each paper, output: 'TITLE | SCORE | BRIEF_REASON'"
+            )
+            paper_lines = []
+            for p in seeds:
+                title = p.get("title", "Untitled")
+                abstract = (p.get("abstract") or "")[:200]
+                paper_lines.append(f"Title: {title}\nAbstract: {abstract}")
+            user_msg = "\n---\n".join(paper_lines)
+
+            llm_resp = self._safe_llm_call(sys_prompt, user_msg)
+            filtered = relevance_filter.execute({
+                "papers": seeds,
+                "llm_response": llm_resp.text,
+                "threshold": self.config.relevance_threshold,
+            })
+            if filtered.success:
+                seeds = filtered.data.get("papers", seeds)
+
+        # 3. Citation expansion (if available)
+        citation_expander = self.tools.get("citation_expand")
+        if citation_expander and seeds:
+            expanded = citation_expander.execute({
+                "papers": seeds,
+                "top_k": self.config.citation_expand_top_k,
+                "per_paper": self.config.citation_expand_per_paper,
+            })
+            if expanded.success:
+                expanded_papers = expanded.data.get("papers", [])
+                seeds.extend(expanded_papers)
+                seeds, _ = _dedup_by_title(seeds)
+
+        # 4. DBLP venue lookup (if enabled)
+        if self.config.enable_dblp_lookup:
+            venue_lookup = self.tools.get("venue_lookup")
+            if venue_lookup:
+                result = venue_lookup.execute({"papers": seeds})
+                if result.success:
+                    seeds = result.data.get("papers", seeds)
+
+        # 5. Composite ranking (replaces SortByCitation)
+        ranker = self.tools.get("composite_rank")
+        if ranker:
+            ranked = ranker.execute({"papers": seeds})
+            if ranked.success:
+                seeds = ranked.data.get("papers", seeds)
+
+        # 6. Truncate to max_papers
+        self._papers = seeds[:self.config.max_papers]
         return self._papers
 
     def _analyze_papers(self, papers: list[dict]) -> str:

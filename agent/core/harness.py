@@ -18,7 +18,10 @@ from agent.feedback.detect_hallucination import HallucinationDetector
 from agent.feedback.polish_language import LanguagePolisher
 from agent.feedback.latex_repair import LatexFormatRepair
 from agent.tools.retrieval import ArxivSearch, SemanticScholarSearch, MergeResults
-from agent.tools.processing import SortByCitation, FormatBibtex, PdfDownload, PdfParse, Dedup
+from agent.tools.processing import SortByCitation, FormatBibtex, PdfDownload, PdfParse, Dedup, CompositeRanker
+from agent.tools.relevance import RelevanceFilter
+from agent.tools.citation import CitationExpander
+from agent.tools.venue import VenueLookup
 from agent.tools.auxiliary import WebSearch, ShellExec
 from agent.tools.registry import ToolRegistry
 from agent.guardrails.manager import GuardrailManager
@@ -38,6 +41,14 @@ class HarnessConfig:
     max_pipeline_retries: int = 2  # Per-phase retries for transient errors (2 = 3 total attempts)
     year_start: int = 2020
     year_end: int = 2026
+    # New: paper search improvement config
+    relevance_threshold: float = 3.0
+    citation_expand_top_k: int = 5
+    citation_expand_per_paper: int = 10
+    composite_weights: dict = field(default_factory=lambda: {
+        "citation": 0.4, "venue": 0.3, "relevance": 0.3,
+    })
+    enable_dblp_lookup: bool = True
 
 
 @dataclass
@@ -178,6 +189,11 @@ class Harness:
         self._tool_registry.register(Dedup())
         self._tool_registry.register(WebSearch())
         self._tool_registry.register(ShellExec())
+        # New tools for paper search improvement
+        self._tool_registry.register(RelevanceFilter())
+        self._tool_registry.register(CitationExpander())
+        self._tool_registry.register(VenueLookup())
+        self._tool_registry.register(CompositeRanker())
 
         # Guardrails
         self._guardrail_manager = GuardrailManager()
