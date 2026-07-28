@@ -114,7 +114,7 @@ export default function AgentExecution() {
   const navigate = useNavigate();
 
   // WebSocket connection via hook — stop reconnecting once pipeline is done
-  const { connected } = useWebSocket({
+  const { connected, disconnect: disconnectWs } = useWebSocket({
     taskId: "current",
     shouldStopReconnect: () => {
       // Stop reconnecting once the pipeline has reached a terminal state
@@ -140,7 +140,12 @@ export default function AgentExecution() {
         const info = await getSurveyStatus();
         if (info.task_started_at && info.task_started_at !== taskStartedAt) {
           setTaskStartedAt(info.task_started_at);
+          // Clear progress, reset cancelled flag, and force WebSocket
+          // reconnection so the new pipeline's progress replaces the old
+          // error / complete / cancelled state completely.
           setProgress(null);
+          setCancelledOnce(false);
+          disconnectWs();
         }
       } catch { /* ignore */ }
     };
@@ -174,7 +179,9 @@ export default function AgentExecution() {
     setRestartError(null);
     try {
       await restartSurvey();
+      // Force WebSocket reconnection to receive new pipeline progress
       setProgress(null);
+      disconnectWs();
     } catch {
       setRestartError("重启失败，请稍后重试");
     } finally {
@@ -196,6 +203,14 @@ export default function AgentExecution() {
 
   const currentStage = progress?.current_stage || "";
   const stageIndex = STAGE_ORDER.indexOf(currentStage);
+  // When pipeline errored and current_stage is "error", derive the actual
+  // failed stage from last_failed_stage so the chain / timeline marks the
+  // correct node in red (not "error" which is filtered out by StageTimeline).
+  const isError = progress?.status === "ERROR";
+  const effectiveStage = isError && currentStage === "error" && progress?.last_failed_stage
+    ? progress.last_failed_stage.toLowerCase()
+    : currentStage;
+  const effectiveStageIndex = STAGE_ORDER.indexOf(effectiveStage);
   const pipelineFinished = !connected
     && progress?.pipeline_running === false
     && progress?.task_started_at
@@ -286,14 +301,25 @@ export default function AgentExecution() {
     <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", marginBottom: "1.5rem" }}>
       {STAGE_ORDER.map((stage, i) => {
         const idx = STAGE_ORDER.indexOf(stage);
-        const isActive = stage === currentStage;
-        const isPast = stageIndex >= 0 && idx < stageIndex;
-        const isFuture = stageIndex >= 0 && idx > stageIndex;
+        // Use effectiveStageIndex when pipeline errored so the correct
+        // failed stage is highlighted in red instead of "error" making
+        // all previous stages appear green.
+        const activeStage = isError ? effectiveStage : currentStage;
+        const activeIdx = isError ? effectiveStageIndex : stageIndex;
+        const isActive = stage === activeStage;
+        const isPast = activeIdx >= 0 && idx < activeIdx;
+        const isFuture = activeIdx >= 0 && idx > activeIdx;
         const isTerminal = stage === "complete" || stage === "error";
+        // Skip "error" stage in the chain — it's handled by the error panel
+        if (stage === "error") return null;
 
         let bg = "#e0e0e0";
         let color = "#666";
-        if (isActive) {
+        if (isError && isActive) {
+          // Failed stage: red
+          bg = "var(--color-danger)";
+          color = "#fff";
+        } else if (isActive) {
           bg = "var(--color-primary)";
           color = "#fff";
         } else if (isPast) {
@@ -314,7 +340,7 @@ export default function AgentExecution() {
               opacity: isFuture ? 0.4 : 1,
               transition: "all 0.3s",
             }}>
-              {isPast ? "✓ " : isActive ? "▶ " : ""}
+              {isPast ? "✓ " : isActive && isError ? "✗ " : isActive ? "▶ " : ""}
               {STAGE_LABELS[stage] || stage}
             </div>
             {i < STAGE_ORDER.length - 1 && !isTerminal && (
@@ -437,7 +463,7 @@ export default function AgentExecution() {
 
         {progress.last_failed_stage && (
           <p style={{ margin: "0.3rem 0", color: "var(--color-danger-dark)", fontSize: "var(--font-size-sm)" }}>
-            Failed at stage: <strong>{progress.last_failed_stage}</strong>
+            Failed at stage: <strong>{STAGE_LABELS[progress.last_failed_stage.toLowerCase()] || progress.last_failed_stage}</strong>
             {progress.pipeline_retry_count != null && progress.pipeline_retry_count > 0 && (
               <span> (after {progress.pipeline_retry_count} attempt{progress.pipeline_retry_count > 1 ? "s" : ""})</span>
             )}
@@ -516,7 +542,7 @@ export default function AgentExecution() {
                   executionDetails={progress?.execution_details ?? null}
                   currentMessage={progress?.current_message ?? ""}
                   pipelineRunning={pipelineRunning}
-                  pipelineError={progress?.status === "ERROR"}
+                  pipelineError={isError}
                 />
               </div>
               <div>{renderFeedbackPanel()}</div>
@@ -524,13 +550,13 @@ export default function AgentExecution() {
           ) : (
             <div>
               <StageTimeline
-                currentStage={currentStage}
+                currentStage={isError && currentStage === "error" ? effectiveStage : currentStage}
                 stageOrder={STAGE_ORDER}
                 stageLabels={STAGE_LABELS}
                 executionDetails={progress?.execution_details ?? null}
                 currentMessage={progress?.current_message ?? ""}
                 pipelineRunning={pipelineRunning}
-                pipelineError={progress?.status === "ERROR"}
+                pipelineError={isError}
               />
               {renderErrorPanel()}
               {pipelineFinished && progress?.status !== "ERROR" && (
