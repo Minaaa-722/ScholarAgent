@@ -515,6 +515,9 @@ class Harness:
         self._pipeline_retry_count = self._orchestrator._pipeline_retry_count
         self._last_failed_stage = self._orchestrator._last_failed_stage
         self._error_message = self._orchestrator._error_message
+        # Sync current_stage so the frontend receives the correct stage
+        # (not "retrying") when the pipeline fails after exhausting retries.
+        self.current_stage = self._orchestrator.current_stage
 
     # ------------------------------------------------------------------
     # LLM-powered stage helpers

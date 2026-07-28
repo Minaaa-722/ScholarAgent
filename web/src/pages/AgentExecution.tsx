@@ -547,6 +547,7 @@ export default function AgentExecution() {
                   executionDetails={progress?.execution_details ?? null}
                   currentMessage={progress?.current_message ?? ""}
                   pipelineRunning={pipelineRunning}
+                  pipelineError={progress?.status === "ERROR"}
                 />
               </div>
               <div>{renderFeedbackPanel()}</div>
@@ -560,6 +561,7 @@ export default function AgentExecution() {
                 executionDetails={progress?.execution_details ?? null}
                 currentMessage={progress?.current_message ?? ""}
                 pipelineRunning={pipelineRunning}
+                pipelineError={progress?.status === "ERROR"}
               />
               {renderErrorPanel()}
               {pipelineFinished && progress?.status !== "ERROR" && (

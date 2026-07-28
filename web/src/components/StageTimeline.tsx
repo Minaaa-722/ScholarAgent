@@ -134,9 +134,10 @@ export interface StageTimelineProps {
   executionDetails: ExecutionDetails | null;
   currentMessage: string;
   pipelineRunning: boolean;
+  pipelineError?: boolean;
 }
 
-type StageStatus = "completed" | "active" | "pending";
+type StageStatus = "completed" | "active" | "pending" | "failed";
 
 function getStageStatus(
   stage: string,
@@ -415,6 +416,7 @@ interface StageEntryProps {
   executionDetails: ExecutionDetails | null;
   currentMessage: string;
   pipelineRunning: boolean;
+  pipelineError?: boolean;
 }
 
 function StageEntry({
@@ -425,23 +427,32 @@ function StageEntry({
   executionDetails,
   currentMessage,
   pipelineRunning,
+  pipelineError,
 }: StageEntryProps) {
+  // When the pipeline has errored, mark the active stage as "failed"
+  const effectiveStatus =
+    pipelineError && status === "active" ? "failed" : status;
+
   const dotColor =
-    status === "completed"
+    effectiveStatus === "completed"
       ? "var(--color-success)"
-      : status === "active"
+      : effectiveStatus === "active"
         ? "var(--color-primary)"
-        : "#ccc";
+        : effectiveStatus === "failed"
+          ? "var(--color-danger)"
+          : "#ccc";
 
   const dotIcon =
-    status === "completed" ? "✓" : status === "active" ? "▶" : "○";
+    effectiveStatus === "completed" ? "✓" : effectiveStatus === "active" ? "▶" : effectiveStatus === "failed" ? "✗" : "○";
 
   const lineColor =
-    status === "completed"
+    effectiveStatus === "completed"
       ? "var(--color-success)"
-      : status === "active"
+      : effectiveStatus === "active"
         ? "var(--color-primary)"
-        : "#e0e0e0";
+        : effectiveStatus === "failed"
+          ? "var(--color-danger)"
+          : "#e0e0e0";
 
   return (
     <div
@@ -509,27 +520,31 @@ function StageEntry({
         {/* Stage header */}
         <div
           style={{
-            fontWeight: status === "active" ? 700 : 500,
+            fontWeight: effectiveStatus === "active" ? 700 : 500,
             fontSize: "var(--font-size-sm)",
             color:
-              status === "completed"
+              effectiveStatus === "completed"
                 ? "var(--color-success-dark)"
-                : status === "active"
+                : effectiveStatus === "active"
                   ? "var(--color-primary)"
-                  : "var(--color-text-disabled)",
+                  : effectiveStatus === "failed"
+                    ? "var(--color-danger-dark)"
+                    : "var(--color-text-disabled)",
             marginBottom:
-              status === "completed" || status === "active" ? "0.5rem" : 0,
+              effectiveStatus === "completed" || effectiveStatus === "active" || effectiveStatus === "failed" ? "0.5rem" : 0,
             transition: "color 0.3s",
           }}
         >
+          {effectiveStatus === "failed" ? "⚠ " : ""}
           {label}
         </div>
 
-        {/* Artifact card for completed / active-but-finished stages */}
-        {status === "completed" && (
+        {/* Artifact card for completed stages */}
+        {effectiveStatus === "completed" && (
           <StageArtifact stage={stage} details={executionDetails} />
         )}
-        {status === "active" && pipelineRunning && (
+        {/* Active stage while pipeline is still running */}
+        {effectiveStatus === "active" && pipelineRunning && (
           stageHasData(stage, executionDetails) ? (
             <StageArtifact stage={stage} details={executionDetails} />
           ) : (
@@ -557,8 +572,64 @@ function StageEntry({
             </div>
           )
         )}
-        {status === "active" && !pipelineRunning && (
-          <StageArtifact stage={stage} details={executionDetails} />
+        {/* Failed stage — show error card instead of artifact */}
+        {effectiveStatus === "failed" && (
+          <div
+            style={{
+              background: "var(--color-danger-light)",
+              borderRadius: "var(--radius-lg)",
+              padding: "1rem",
+              borderLeft: "3px solid var(--color-danger)",
+            }}
+          >
+            <p
+              style={{
+                margin: 0,
+                fontSize: "var(--font-size-sm)",
+                color: "var(--color-danger-dark)",
+                fontWeight: 600,
+              }}
+            >
+              ✗ Stage failed
+            </p>
+            {currentMessage && (
+              <p
+                style={{
+                  margin: "0.3rem 0 0",
+                  fontSize: "var(--font-size-sm)",
+                  color: "var(--color-text-secondary)",
+                }}
+              >
+                {currentMessage}
+              </p>
+            )}
+          </div>
+        )}
+        {/* Active stage after pipeline stopped (shouldn't happen, but handle gracefully) */}
+        {effectiveStatus === "active" && !pipelineRunning && (
+          stageHasData(stage, executionDetails) ? (
+            <StageArtifact stage={stage} details={executionDetails} />
+          ) : (
+            <div
+              style={{
+                background: "#f5f5f5",
+                borderRadius: "var(--radius-lg)",
+                padding: "1rem",
+                borderLeft: "3px solid var(--color-text-disabled)",
+              }}
+            >
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "var(--font-size-sm)",
+                  color: "var(--color-text-disabled)",
+                  fontStyle: "italic",
+                }}
+              >
+                Stage was interrupted
+              </p>
+            </div>
+          )
         )}
       </div>
     </div>
@@ -597,6 +668,7 @@ export default function StageTimeline(props: StageTimelineProps) {
     executionDetails,
     currentMessage,
     pipelineRunning,
+    pipelineError,
   } = props;
 
   // Only show stages up to "retrying" (ignore "complete", "error" — handled by other panels)
@@ -619,6 +691,7 @@ export default function StageTimeline(props: StageTimelineProps) {
             executionDetails={executionDetails}
             currentMessage={currentMessage}
             pipelineRunning={pipelineRunning}
+            pipelineError={pipelineError}
           />
         );
       })}

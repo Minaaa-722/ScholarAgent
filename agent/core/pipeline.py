@@ -176,6 +176,10 @@ class PipelineOrchestrator:
             logger.exception("Pipeline failed with fatal error")
             self._safe_transition(AgentState.ERROR)
             self._log("ERROR", {"error": str(e)})
+            # If current_stage is still "retrying" or empty, set it to the failed
+            # stage name so the frontend timeline shows the correct active stage.
+            if not self.current_stage or self.current_stage == "retrying":
+                self.current_stage = "error"
             return PipelineResult(
                 status="error",
                 execution_log=self.execution_log,
@@ -824,6 +828,10 @@ class PipelineOrchestrator:
                         "Stage %s failed after %d attempts. Giving up.",
                         stage.name, self.config.max_pipeline_retries + 1,
                     )
+                    # Set current_stage to the actual failed stage (not "retrying")
+                    # so the frontend timeline shows the correct active stage
+                    # instead of all stages appearing as "completed".
+                    self.current_stage = stage.name.lower()
                     raise
 
     # ------------------------------------------------------------------
