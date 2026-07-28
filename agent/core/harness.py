@@ -29,6 +29,21 @@ from agent.memory.integration import MemoryIntegration
 
 logger = logging.getLogger(__name__)
 
+
+def _build_paper_url(paper: dict) -> str:
+    """Construct a paper URL from available identifiers when url is missing."""
+    arxiv_id = paper.get("arxiv_id", "") or ""
+    if arxiv_id:
+        return f"https://arxiv.org/abs/{arxiv_id}"
+    paper_id = paper.get("paper_id", "") or ""
+    if paper_id:
+        return f"https://www.semanticscholar.org/paper/{paper_id}"
+    doi = paper.get("doi", "") or ""
+    if doi:
+        return f"https://doi.org/{doi}"
+    return ""
+
+
 # Progress callback type: (stage: str, message: str, detail: dict | None)
 ProgressCallback = Callable[[str, str, Optional[dict]], None]
 
@@ -287,7 +302,7 @@ class Harness:
                     "year": p.get("year", ""),
                     "citations": p.get("citation_count", 0),
                     "source": "arxiv" if p.get("arxiv_id") else "semantic_scholar",
-                    "url": p.get("url", ""),
+                    "url": p.get("url", "") or _build_paper_url(p),
                 })
             details["papers"] = {
                 "total": len(self._papers),

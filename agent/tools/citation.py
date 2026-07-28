@@ -87,7 +87,7 @@ class CitationExpander(Tool):
 
     def _fetch_related(self, paper_id: str, relation: str, limit: int) -> list[dict]:
         """Fetch references or citations of a paper from Semantic Scholar."""
-        fields = "title,authors,year,citationCount,externalIds,venue,abstract"
+        fields = "title,authors,year,citationCount,externalIds,venue,abstract,url"
         url = (
             f"{S2_API_BASE}/{urllib.parse.quote(paper_id)}/{relation}"
             f"?limit={limit}&fields={fields}"
