@@ -67,3 +67,51 @@ class FormatBibtex(Tool):
             f"}}"
         )
         return ToolResult(success=True, data={"bibtex": bibtex})
+
+
+class CompositeRanker(Tool):
+    name = "composite_rank"
+    description = "Rank papers by composite score: citation count, venue quality, and relevance"
+
+    DEFAULT_WEIGHTS = {"citation": 0.4, "venue": 0.3, "relevance": 0.3}
+
+    def execute(self, params: dict) -> ToolResult:
+        papers = list(params.get("papers", []))
+        weights = params.get("weights", dict(self.DEFAULT_WEIGHTS))
+
+        if not papers:
+            return ToolResult(success=True, data={"papers": []})
+
+        # Normalize citation count (0-1)
+        max_citations = max(p.get("citation_count", 0) or 0 for p in papers)
+        if max_citations == 0:
+            max_citations = 1  # Avoid division by zero
+
+        for p in papers:
+            # Citation score (normalized)
+            cite_score = (p.get("citation_count", 0) or 0) / max_citations
+
+            # Venue bonus
+            is_top = p.get("is_top_venue", False)
+            venue = p.get("venue", "") or ""
+            if is_top:
+                venue_score = 1.0
+            elif venue:
+                venue_score = 0.3  # Has venue but not top-tier
+            else:
+                venue_score = 0.0
+
+            # Relevance score (normalized from 1-5 scale to 0-1)
+            raw_rel = p.get("_relevance_score", 3.0) or 3.0
+            rel_score = raw_rel / 5.0
+
+            # Composite
+            composite = (
+                weights.get("citation", 0.4) * cite_score
+                + weights.get("venue", 0.3) * venue_score
+                + weights.get("relevance", 0.3) * rel_score
+            )
+            p["_composite_score"] = round(composite, 4)
+
+        papers.sort(key=lambda p: p.get("_composite_score", 0), reverse=True)
+        return ToolResult(success=True, data={"papers": papers})
