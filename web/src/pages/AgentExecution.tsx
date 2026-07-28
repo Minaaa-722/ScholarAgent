@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { getSurveyStatus, submitFeedback, restartSurvey, interruptSurvey, resumeSurvey } from "../api/client";
+import { getSurveyStatus, submitFeedback, restartSurvey, cancelSurvey } from "../api/client";
 import Button from "../components/Button";
 import Card from "../components/Card";
 import Badge from "../components/Badge";
@@ -105,8 +105,7 @@ export default function AgentExecution() {
   const [restarting, setRestarting] = useState(false);
   const [restartError, setRestartError] = useState<string | null>(null);
 
-  // Interrupt/resume state
-  const [interrupting, setInterrupting] = useState(false);
+  // Cancel dialog state
   const [showCancelDialog, setShowCancelDialog] = useState(false);
 
   const { showToast } = useToast();
@@ -120,7 +119,7 @@ export default function AgentExecution() {
       // Stop reconnecting once the pipeline has reached a terminal state
       // and the WebSocket has delivered the final data
       return progress?.pipeline_running === false
-        && (progress?.status === "COMPLETE" || progress?.status === "ERROR");
+        && (progress?.status === "COMPLETE" || progress?.status === "ERROR" || progress?.status === "CANCELLED");
     },
     onMessage: (data: ProgressInfo) => {
       setProgress(data);
@@ -182,34 +181,14 @@ export default function AgentExecution() {
     }
   };
 
-  const handleInterrupt = async () => {
-    setInterrupting(true);
-    try {
-      await interruptSurvey();
-      showToast("info", "Pipeline paused");
-    } catch {
-      showToast("error", "Interrupt failed");
-    } finally {
-      setInterrupting(false);
-    }
-  };
-
-  const handleResume = async () => {
-    try {
-      await resumeSurvey();
-      showToast("success", "Pipeline resumed");
-    } catch {
-      showToast("error", "Resume failed");
-    }
-  };
-
   const handleCancel = async () => {
     setShowCancelDialog(false);
     try {
-      await interruptSurvey();
-      showToast("info", "Task cancelled");
+      await cancelSurvey();
+      setProgress(null);
+      showToast("info", "任务已取消");
     } catch {
-      showToast("error", "Cancel failed");
+      showToast("error", "取消失败");
     }
   };
 
@@ -218,6 +197,7 @@ export default function AgentExecution() {
   const pipelineFinished = !connected
     && progress?.pipeline_running === false
     && progress?.task_started_at
+    && progress?.status !== "CANCELLED"
     && (progress?.status === "COMPLETE" || progress?.status === "ERROR");
   const pipelineRunning = progress?.pipeline_running === true;
   const isInterrupted = progress?.status === "INTERRUPTED";
@@ -506,23 +486,11 @@ export default function AgentExecution() {
                     {progress.has_warnings && <Badge color="orange" dot>Has Warnings</Badge>}
                   </p>
                 </div>
-                {/* Pipeline control buttons */}
+                {/* Pipeline control buttons — only Cancel */}
                 <div style={{ display: "flex", gap: "0.5rem", flexShrink: 0 }}>
                   {pipelineRunning && (
-                    <>
-                      <Button variant="ghost" size="sm" onClick={handleInterrupt} loading={interrupting}
-                        style={{ color: "#fff", borderColor: "rgba(255,255,255,0.3)" }}>
-                        ⏸ Pause
-                      </Button>
-                      <Button variant="danger" size="sm" onClick={() => setShowCancelDialog(true)}>
-                        ⏹ Cancel
-                      </Button>
-                    </>
-                  )}
-                  {isInterrupted && (
-                    <Button variant="primary" size="sm" onClick={handleResume}
-                      style={{ background: "var(--color-success)", color: "#fff" }}>
-                      ▶ Resume
+                    <Button variant="danger" size="sm" onClick={() => setShowCancelDialog(true)}>
+                      ⏹ 取消任务
                     </Button>
                   )}
                 </div>
@@ -548,6 +516,7 @@ export default function AgentExecution() {
                   currentMessage={progress?.current_message ?? ""}
                   pipelineRunning={pipelineRunning}
                   pipelineError={progress?.status === "ERROR"}
+                  pipelineCancelled={progress?.status === "CANCELLED"}
                 />
               </div>
               <div>{renderFeedbackPanel()}</div>
@@ -562,6 +531,7 @@ export default function AgentExecution() {
                 currentMessage={progress?.current_message ?? ""}
                 pipelineRunning={pipelineRunning}
                 pipelineError={progress?.status === "ERROR"}
+                pipelineCancelled={progress?.status === "CANCELLED"}
               />
               {renderErrorPanel()}
               {pipelineFinished && progress?.status !== "ERROR" && (
@@ -587,7 +557,7 @@ export default function AgentExecution() {
       <ConfirmDialog
         open={showCancelDialog}
         title="Cancel Task?"
-        message="This will stop the current pipeline. You can start a new task from the Dashboard."
+        message="此操作将取消当前任务并清空所有过程数据，且不可恢复。确定取消？"
         confirmLabel="Cancel Task"
         danger
         onConfirm={handleCancel}
