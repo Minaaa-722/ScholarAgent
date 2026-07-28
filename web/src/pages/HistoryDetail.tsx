@@ -131,19 +131,19 @@ export default function HistoryDetail() {
 
       {/* Summary card */}
       <Card
-        borderColor={entry.has_warnings ? "var(--color-warning)" : "var(--color-success)"}
+        borderColor={entry.status === "cancelled" ? "var(--color-text-disabled)" : entry.has_warnings ? "var(--color-warning)" : "var(--color-success)"}
         title={
           <span style={{ fontWeight: 600 }}>
-            Status: {entry.status === "complete" ? "Completed" : entry.status}
+            Status: {entry.status === "complete" ? "Completed" : entry.status === "cancelled" ? "已取消" : entry.status}
             {entry.has_warnings && " (with warnings)"}
           </span>
         }
         headerRight={
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-            <Badge color={entry.has_warnings ? "orange" : "green"} dot>
-              {entry.has_warnings ? "Warnings" : "Passed"}
+            <Badge color={entry.status === "cancelled" ? "gray" : entry.has_warnings ? "orange" : "green"} dot>
+              {entry.status === "cancelled" ? "已取消" : entry.has_warnings ? "Warnings" : "Passed"}
             </Badge>
-            <Badge color="gray">Rounds: {entry.rounds}</Badge>
+            {entry.status !== "cancelled" && <Badge color="gray">Rounds: {entry.rounds}</Badge>}
           </div>
         }
       >
@@ -158,14 +158,27 @@ export default function HistoryDetail() {
           </p>
         )}
         <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)" }}>
-          <strong>Completed:</strong> {entry.timestamp}
-          {" | "}
-          <strong>Papers retrieved:</strong> {entry.paper_count}
+          <strong>Created:</strong> {entry.timestamp}
         </p>
       </Card>
 
+      {/* Cancelled state message */}
+      {entry.status === "cancelled" && (
+        <Card borderColor="var(--color-text-disabled)">
+          <div style={{ textAlign: "center", padding: "2rem 1rem" }}>
+            <div style={{ fontSize: "3rem", marginBottom: "0.5rem" }}>🛑</div>
+            <h3 style={{ margin: "0 0 0.5rem", color: "var(--color-text-secondary)" }}>
+              任务已手动取消
+            </h3>
+            <p style={{ margin: 0, color: "var(--color-text-disabled)", fontSize: "var(--font-size-sm)" }}>
+              该任务已被手动取消，无过程数据可展示。
+            </p>
+          </div>
+        </Card>
+      )}
+
       {/* Paper list */}
-      {entry.papers.length > 0 && (
+      {entry.status !== "cancelled" && entry.papers.length > 0 && (
         <Card title="📚 Retrieved Papers">
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "var(--font-size-sm)" }}>
@@ -199,7 +212,7 @@ export default function HistoryDetail() {
       )}
 
       {/* Final paper section viewer */}
-      {sections.length > 0 && (
+      {entry.status !== "cancelled" && sections.length > 0 && (
         <Card
           title="📄 Final Paper"
           headerRight={
@@ -254,7 +267,7 @@ export default function HistoryDetail() {
       )}
 
       {/* Fallback full paper view */}
-      {sections.length === 0 && entry.final_paper && (
+      {entry.status !== "cancelled" && sections.length === 0 && entry.final_paper && (
         <Card title="📄 Full Paper">
           <div
             style={{
@@ -273,7 +286,7 @@ export default function HistoryDetail() {
       )}
 
       {/* Export buttons */}
-      {entry.final_paper && (
+      {entry.status !== "cancelled" && entry.final_paper && (
         <div style={{ display: "flex", gap: "1rem", marginTop: "1rem" }}>
           <Button onClick={handleExportTex} icon="📥">
             Download .tex
