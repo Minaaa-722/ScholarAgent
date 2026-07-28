@@ -72,7 +72,6 @@ export default function Dashboard() {
         <Card
           title={currentTask.topic}
           headerRight={<Badge color={currentTask.status === "COMPLETE" ? "green" : currentTask.status === "ERROR" ? "red" : "blue"}>{currentTask.status}</Badge>}
-          style={{ maxWidth: 400 }}
         >
           {currentTask.status === "ERROR" && (
             <div style={{
@@ -106,29 +105,49 @@ export default function Dashboard() {
 
       {/* Onboarding feature cards — shown when no task exists */}
       {!currentTask && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--space-md)", marginTop: "var(--space-lg)" }}>
-          <Card title="🔍 Multi-Source Search">
-            <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)" }}>
-              Searches arXiv, Semantic Scholar, and Google Scholar automatically.
-            </p>
-          </Card>
-          <Card title="✅ Quality Validation">
-            <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)" }}>
-              5-dimension quality check with auto-correction.
-            </p>
-          </Card>
-          <Card title="📝 CVPR Format">
-            <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)" }}>
-              Outputs in CVPR LaTeX format with BibTeX references.
-            </p>
-          </Card>
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))",
+          gap: "24px",
+          width: "100%",
+          margin: "12px 0 32px",
+        }}>
+          <div style={{ minHeight: "160px", height: "100%", boxSizing: "border-box" }}>
+            <Card title="🔍 Multi-Source Search" style={{ marginBottom: 0 }}>
+              <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)" }}>
+                Searches arXiv, Semantic Scholar, and Google Scholar automatically.
+              </p>
+            </Card>
+          </div>
+          <div style={{ minHeight: "160px", height: "100%", boxSizing: "border-box" }}>
+            <Card title="✅ Quality Validation" style={{ marginBottom: 0 }}>
+              <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)" }}>
+                5-dimension quality check with auto-correction.
+              </p>
+            </Card>
+          </div>
+          <div style={{ minHeight: "160px", height: "100%", boxSizing: "border-box" }}>
+            <Card title="📝 CVPR Format" style={{ marginBottom: 0 }}>
+              <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)" }}>
+                Outputs in CVPR LaTeX format with BibTeX references.
+              </p>
+            </Card>
+          </div>
         </div>
       )}
 
       {currentTask && (
-        <div style={{ marginTop: "var(--space-lg)" }}>
+        <div style={{
+          marginTop: "var(--space-lg)",
+          marginBottom: "var(--space-lg)",
+          display: "flex",
+          justifyContent: "center",
+          padding: "1.5rem 0",
+          borderTop: "1px solid var(--color-border)",
+          borderBottom: "1px solid var(--color-border)",
+        }}>
           <Link to="/create">
-            <Button>+ New Research Task</Button>
+            <Button size="lg">+ New Research Task</Button>
           </Link>
         </div>
       )}
@@ -139,12 +158,18 @@ export default function Dashboard() {
           <h2 style={{ fontSize: "var(--font-size-lg)", marginBottom: "var(--space-sm)" }}>
             History ({history.length})
           </h2>
-          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))",
+            gap: "24px",
+            width: "100%",
+            margin: "12px 0 32px",
+          }}>
             {history.map((item) => (
               <div
                 key={item.id}
                 onClick={() => navigate(`/history/${item.id}`)}
-                style={{ cursor: "pointer" }}
+                style={{ cursor: "pointer", minHeight: "160px", height: "100%", boxSizing: "border-box" }}
               >
                 <Card
                   title={item.topic}
@@ -153,7 +178,7 @@ export default function Dashboard() {
                       {item.status}
                     </Badge>
                   }
-                  style={{ maxWidth: 400 }}
+                  style={{ marginBottom: 0 }}
                 >
                   <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)" }}>
                     {item.goal ? item.goal.slice(0, 100) + (item.goal.length > 100 ? "…" : "") : "No goal specified"}
