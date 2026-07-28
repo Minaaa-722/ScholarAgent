@@ -768,7 +768,17 @@ class PipelineOrchestrator:
         for attempt in range(1, self.config.max_pipeline_retries + 2):
             try:
                 self._ensure_state(stage)
-                return fn()
+                result = fn()
+                # After a successful retry, reset current_stage from "retrying"
+                # back to the correct stage so the frontend timeline shows the
+                # correct stage status instead of all stages as "completed"
+                # (which happens when current_stage is "retrying" at index 7).
+                if attempt > 1:
+                    self._progress(
+                        on_progress, stage.name.lower(),
+                        f"Resuming {stage.name.lower()} after retry…",
+                    )
+                return result
             except Exception as e:
                 self._pipeline_retry_count = attempt
                 self._last_failed_stage = stage

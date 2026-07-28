@@ -112,6 +112,58 @@ def test_orchestrator_build_task_info():
     assert info["plan"]["section_count"] == 2
 
 
+def test_retry_on_error_resets_stage_after_success():
+    """Test that _retry_on_error resets current_stage from 'retrying' back to the correct stage after a successful retry.
+
+    This is the regression test for the bug where:
+    1. _retry_on_error catches an error and calls _progress("retrying", ...)
+       → sets current_stage = "retrying"
+    2. When the retry succeeds, current_stage is never reset from "retrying"
+    3. The frontend sees "retrying" (index 7) and shows ALL stages as "completed"
+    """
+    orch = _make_orchestrator()
+    # Set max_pipeline_retries to 1 so we get 2 total attempts
+    orch.config.max_pipeline_retries = 1
+    # _retry_on_error needs _state to be set
+    orch._state = StateMachine()
+    orch._state.transition_to(AgentState.PLANNING)
+    orch._state.transition_to(AgentState.RETRIEVAL)
+
+    # Record progress calls
+    progress_calls = []
+
+    def on_progress(stage: str, msg: str, detail: dict | None):
+        progress_calls.append(stage)
+
+    call_count = [0]
+
+    def fails_once():
+        call_count[0] += 1
+        if call_count[0] == 1:
+            raise RuntimeError("First attempt fails")
+        return "success"
+
+    result = orch._retry_on_error(
+        fn=fails_once,
+        stage=AgentState.RETRIEVAL,
+        on_progress=on_progress,
+    )
+
+    assert result == "success"
+    assert call_count[0] == 2
+    # After the retry succeeds, the LAST progress call should be "retrieval", not "retrying"
+    assert progress_calls[-1] == "retrieval", (
+        f"Expected last progress stage to be 'retrieval', got '{progress_calls[-1]}'. "
+        f"All progress calls: {progress_calls}"
+    )
+    # The "retrying" call should be in the middle, followed by a reset to "retrieval"
+    assert "retrying" in progress_calls, "Should have had a 'retrying' progress call"
+    # Verify current_stage is reset to the correct stage for the frontend
+    assert orch.current_stage == "retrieval", (
+        f"current_stage should be 'retrieval' after retry succeeds, got '{orch.current_stage}'"
+    )
+
+
 def test_guardrail_manager_with_empty_guardrails():
     """Test GuardrailManager with empty guardrail list."""
     manager = GuardrailManager(guardrails=[])
