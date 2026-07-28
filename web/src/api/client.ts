@@ -20,6 +20,11 @@ export async function interruptSurvey() {
   return res.json();
 }
 
+export async function cancelSurvey() {
+  const res = await fetch(`${API_BASE}/api/survey/cancel`, { method: "POST" });
+  return res.json();
+}
+
 export async function resumeSurvey() {
   const res = await fetch(`${API_BASE}/api/survey/resume`, { method: "POST" });
   return res.json();
