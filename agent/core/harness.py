@@ -379,6 +379,60 @@ class Harness:
         self.state.resume()
         self._interrupt_event.clear()
 
+    def cancel(self) -> None:
+        """Cancel the current task irreversibly — mark as CANCELLED, save to history, clear all data."""
+        if self.state.current_state in (
+            AgentState.CANCELLED, AgentState.COMPLETE, AgentState.ERROR
+        ):
+            raise ValueError(
+                f"Cannot cancel from terminal state: {self.state.current_state.name}"
+            )
+        if not self.task:
+            raise ValueError("No active task to cancel")
+
+        # Transition to CANCELLED
+        self.state.transition_to(AgentState.CANCELLED)
+        self._interrupt_event.set()
+        self._pipeline_running = False
+        self.current_stage = ""
+        self.current_message = ""
+
+        # Save cancelled record to history
+        result = {
+            "status": "cancelled",
+            "paper": "",
+            "rounds": 0,
+            "has_warnings": False,
+            "papers": [],
+            "execution_log": [],
+        }
+        self._memory_integration.save_task_history(self.task, result)
+
+        # Clear all intermediate data
+        self._clear_all_data()
+        self._orchestrator.reset_state()
+
+    def _clear_all_data(self) -> None:
+        """Clear all intermediate execution data — called on cancel."""
+        self._plan = ""
+        self._papers = []
+        self._analysis = ""
+        self._draft_sections = []
+        self._validation_scores = {}
+        self._retrieved_queries = []
+        self._pending_expansions = []
+        self._pending_revisions = []
+        self.execution_log = []
+        self.latex_repair_log = None
+        self.last_result = None
+        self._pipeline_retry_count = 0
+        self._last_failed_stage = None
+        self._error_message = ""
+        self.feedback_queue = []
+        self.feedback_history = []
+        self.retry_count = 0
+        self.has_warnings = False
+
     def submit_human_feedback(self, category: str, content: str) -> dict:
         """外部 API 调用此方法注入反馈"""
         import uuid

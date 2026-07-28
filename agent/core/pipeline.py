@@ -137,6 +137,24 @@ class PipelineOrchestrator:
         self._last_failed_stage = None
         self._error_message = ""
 
+    def reset_state(self) -> None:
+        """Reset all pipeline state to defaults (called on cancel/restart)."""
+        self.execution_log = []
+        self._pipeline_retry_count = 0
+        self._last_failed_stage = None
+        self._error_message = ""
+        self._plan = ""
+        self._papers = []
+        self._analysis = ""
+        self._draft_sections = []
+        self._validation_scores = {}
+        self._retrieved_queries = []
+        self._pending_expansions = []
+        self._pending_revisions = []
+        self.latex_repair_log = None
+        self.current_stage = ""
+        self.current_message = ""
+
     def run_pipeline(
         self,
         task: TaskInfo,
@@ -154,21 +172,7 @@ class PipelineOrchestrator:
         self._feedback_history = feedback_history
 
         # Reset pipeline state
-        self.execution_log = []
-        self._pipeline_retry_count = 0
-        self._last_failed_stage = None
-        self._error_message = ""
-        self._plan = ""
-        self._papers = []
-        self._analysis = ""
-        self._draft_sections = []
-        self._validation_scores = {}
-        self._retrieved_queries = []
-        self._pending_expansions = []
-        self._pending_revisions = []
-        self.latex_repair_log = None
-        self.current_stage = ""
-        self.current_message = ""
+        self.reset_state()
 
         try:
             return self._pipeline(on_progress)
