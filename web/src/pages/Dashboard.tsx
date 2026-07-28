@@ -174,8 +174,8 @@ export default function Dashboard() {
                 <Card
                   title={item.topic}
                   headerRight={
-                    <Badge color={item.status === "complete" ? "green" : item.status === "error" ? "red" : "gray"}>
-                      {item.status}
+                    <Badge color={item.status === "complete" ? "green" : item.status === "error" ? "red" : item.status === "cancelled" ? "gray" : "gray"}>
+                      {item.status === "cancelled" ? "已取消" : item.status}
                     </Badge>
                   }
                   style={{ marginBottom: 0 }}
