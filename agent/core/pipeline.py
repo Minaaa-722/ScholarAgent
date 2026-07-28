@@ -35,6 +35,14 @@ class HarnessConfig:
     max_pipeline_retries: int = 2
     year_start: int = 2020
     year_end: int = 2026
+    # New: paper search improvement config
+    relevance_threshold: float = 3.0
+    citation_expand_top_k: int = 5
+    citation_expand_per_paper: int = 10
+    composite_weights: dict = field(default_factory=lambda: {
+        "citation": 0.4, "venue": 0.3, "relevance": 0.3,
+    })
+    enable_dblp_lookup: bool = True
 
 
 @dataclass
