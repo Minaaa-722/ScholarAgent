@@ -77,7 +77,7 @@ class OpenAILLM(LLMBase):
         base_url: str = "",
         temperature: float = 0.7,
         max_retries: int = 3,
-        timeout: int = 60,
+        timeout: int = 0,
     ):
         self.api_key = api_key or os.getenv("LLM_API_KEY", "")
         if not self.api_key:
@@ -88,7 +88,11 @@ class OpenAILLM(LLMBase):
         self.base_url = base_url or os.getenv("LLM_BASE_URL", "https://njusehub.info/v1")
         self.temperature = temperature
         self.max_retries = max_retries
-        self.timeout = timeout
+        # Timeout: env var LLM_TIMEOUT > constructor arg > default 180s
+        self.timeout = (
+            timeout
+            or int(os.getenv("LLM_TIMEOUT", "180"))
+        )
 
         try:
             from openai import OpenAI

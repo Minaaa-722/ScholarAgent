@@ -363,7 +363,7 @@ class PipelineOrchestrator:
         # Guardrail: rate limit check
         self._guardrails.check_tool_call("llm_generate", {"prompt": user_msg})
 
-        resp = self._safe_llm_call(sys_prompt, user_msg, use_tools=True)
+        resp = self._safe_llm_call(sys_prompt, user_msg)
 
         # Parse queries
         raw_lines = resp.text.strip().split("\n")
@@ -875,25 +875,10 @@ class PipelineOrchestrator:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-    def _safe_llm_call(self, system_prompt: str, user_message: str, use_tools: bool = False) -> LLMResponse:
-        """Call LLM with optional tool definitions."""
+    def _safe_llm_call(self, system_prompt: str, user_message: str) -> LLMResponse:
+        """Call LLM without tool definitions (search queries are generated as text, not tool calls)."""
         try:
-            tools = None
-            if use_tools:
-                # Build tool definitions from the ToolRegistry
-                tools = []
-                for name in self.tools.list_tools():
-                    tool = self.tools.get(name)
-                    if tool:
-                        tools.append({
-                            "type": "function",
-                            "function": {
-                                "name": name,
-                                "description": getattr(tool, "description", ""),
-                                "parameters": {"type": "object", "properties": {}},
-                            },
-                        })
-            return self.llm.generate(system_prompt, user_message, tools=tools)
+            return self.llm.generate(system_prompt, user_message)
         except Exception as e:
             logger.error("LLM call failed: %s", e)
             raise RuntimeError(f"LLM call failed: {e}") from e
