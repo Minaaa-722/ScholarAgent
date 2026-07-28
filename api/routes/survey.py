@@ -12,7 +12,7 @@ def get_harness() -> Harness:
 
 @router.post("", response_model=SurveyResponse)
 async def create_survey(req: SurveyRequest, harness: Harness = Depends(get_harness)):
-    harness.run_async(topic=req.topic, keywords=req.keywords, goal=req.goal)
+    harness.run_async(topic=req.topic, keywords=req.keywords, goal=req.goal, max_papers=req.max_papers)
     info = harness.get_task_info()
     return SurveyResponse(**info)
 

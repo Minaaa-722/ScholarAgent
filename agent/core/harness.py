@@ -17,7 +17,7 @@ from agent.feedback.check_word_count import WordCountChecker
 from agent.feedback.detect_hallucination import HallucinationDetector
 from agent.feedback.polish_language import LanguagePolisher
 from agent.feedback.latex_repair import LatexFormatRepair
-from agent.tools.retrieval import ArxivSearch, SemanticScholarSearch, MergeResults
+from agent.tools.retrieval import ArxivSearch, SemanticScholarSearch, MergeResults, EnrichCitations
 from agent.tools.processing import SortByCitation, FormatBibtex, PdfDownload, PdfParse, Dedup, CompositeRanker
 from agent.tools.relevance import RelevanceFilter
 from agent.tools.citation import CitationExpander
@@ -194,6 +194,7 @@ class Harness:
         self._tool_registry.register(CitationExpander())
         self._tool_registry.register(VenueLookup())
         self._tool_registry.register(CompositeRanker())
+        self._tool_registry.register(EnrichCitations())
 
         # Guardrails
         self._guardrail_manager = GuardrailManager()
@@ -218,12 +219,12 @@ class Harness:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def start(self, topic: str, keywords: str = "", goal: str = "") -> None:
+    def start(self, topic: str, keywords: str = "", goal: str = "", max_papers: int | None = None) -> None:
         self.task = TaskInfo(
             topic=topic,
             keywords=[k.strip() for k in keywords.split(",") if k.strip()],
             goal=goal,
-            max_papers=self.config.max_papers,
+            max_papers=max_papers or self.config.max_papers,
         )
         self.retry_count = 0
         self.has_warnings = False
@@ -385,6 +386,7 @@ class Harness:
         topic: str,
         keywords: str = "",
         goal: str = "",
+        max_papers: int | None = None,
         on_progress: Optional[ProgressCallback] = None,
     ) -> dict:
         """Run the full survey-generation pipeline end-to-end.
@@ -397,7 +399,7 @@ class Harness:
           - error: error message if status is "error"
         """
         try:
-            self.start(topic, keywords, goal)
+            self.start(topic, keywords, goal, max_papers)
             return self._pipeline(on_progress)
         except Exception as e:
             logger.exception("Pipeline failed with fatal error")
@@ -414,6 +416,7 @@ class Harness:
         topic: str,
         keywords: str = "",
         goal: str = "",
+        max_papers: int | None = None,
         on_progress: Optional[ProgressCallback] = None,
     ) -> None:
         """Run the pipeline in a background thread."""
@@ -423,7 +426,7 @@ class Harness:
 
         def _target():
             try:
-                self.last_result = self.run(topic, keywords, goal, on_progress)
+                self.last_result = self.run(topic, keywords, goal, max_papers, on_progress)
             finally:
                 self._pipeline_running = False
 

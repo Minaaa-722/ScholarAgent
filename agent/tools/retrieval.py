@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 import time
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 ARXIV_API_URL = "http://export.arxiv.org/api/query"
 SEMANTIC_SCHOLAR_API_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
+SEMANTIC_SCHOLAR_PAPER_API_URL = "https://api.semanticscholar.org/graph/v1/paper/batch"
 
 
 # ---------------------------------------------------------------------------
@@ -274,11 +276,80 @@ class MergeResults(Tool):
 
 
 # ---------------------------------------------------------------------------
+# Enrich Citations — look up citation counts for arXiv papers via Semantic Scholar
+# ---------------------------------------------------------------------------
+class EnrichCitations(Tool):
+    name = "enrich_citations"
+    description = "Look up citation counts for arXiv papers via Semantic Scholar API"
+
+    def __init__(self, api_key: str = ""):
+        self.api_key = api_key
+
+    def execute(self, params: dict) -> ToolResult:
+        papers = params.get("papers", [])
+        batch_size = min(params.get("batch_size", 50), 100)
+
+        if not papers:
+            return ToolResult(success=True, data={"papers": papers, "enriched": 0})
+
+        # Collect papers with arxiv_id but citation_count == 0
+        to_lookup = []
+        for p in papers:
+            arxiv_id = p.get("arxiv_id", "") or ""
+            citations = p.get("citation_count", 0) or 0
+            if arxiv_id and citations == 0:
+                to_lookup.append(p)
+
+        if not to_lookup:
+            return ToolResult(success=True, data={"papers": papers, "enriched": 0})
+
+        # Batch query Semantic Scholar
+        headers = {"User-Agent": "ScholarAgent/1.0"}
+        if self.api_key:
+            headers["x-api-key"] = self.api_key
+
+        enriched_count = 0
+        for i in range(0, len(to_lookup), batch_size):
+            batch = to_lookup[i:i + batch_size]
+            ids = [f"ArXiv:{p['arxiv_id']}" for p in batch if p.get("arxiv_id")]
+
+            if not ids:
+                continue
+
+            try:
+                data = json.dumps({"ids": ids})
+                req = urllib.request.Request(
+                    SEMANTIC_SCHOLAR_PAPER_API_URL,
+                    data=data.encode("utf-8"),
+                    headers={**headers, "Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    results = json_loads(resp.read().decode("utf-8"))
+
+                for paper_data, paper in zip(results, batch):
+                    if paper_data is None:
+                        continue
+                    citation_count = paper_data.get("citationCount", 0) or 0
+                    if citation_count > 0:
+                        paper["citation_count"] = citation_count
+                        enriched_count += 1
+
+                time.sleep(0.5)  # Rate limiting
+
+            except Exception as e:
+                logger.warning("Citation enrichment batch failed: %s", e)
+                continue
+
+        logger.info("Enriched %d/%d papers with citation counts", enriched_count, len(to_lookup))
+        return ToolResult(success=True, data={"papers": papers, "enriched": enriched_count})
+
+
+# ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
 def json_loads(text: str):
     """Safe JSON load with error handling."""
-    import json
     try:
         return json.loads(text)
     except json.JSONDecodeError as e:

@@ -332,10 +332,10 @@ class PipelineOrchestrator:
         # Generate search queries via LLM, with robust parsing
         sys_prompt = (
             "You are a literature search assistant. "
-            "Generate exactly 3 concise search queries to find papers for a survey. "
-            "Return ONLY the 3 queries, one per line, no numbering, no explanation."
+            "Generate exactly 5 concise search queries to find papers for a survey. "
+            "Return ONLY the 5 queries, one per line, no numbering, no explanation."
         )
-        user_msg = f"Survey topic: {topic}\nKeywords: {', '.join(keywords)}\n\nGenerate 3 search queries."
+        user_msg = f"Survey topic: {topic}\nKeywords: {', '.join(keywords)}\n\nGenerate 5 search queries."
 
         # Guardrail: rate limit check
         self._guardrails.check_tool_call("llm_generate", {"prompt": user_msg})
@@ -350,7 +350,7 @@ class PipelineOrchestrator:
             if (line
                 and len(line) < 200
                 and not line.lower().startswith(("here", "sure", "ok", "i'll", "let", "the", "for", "of course"))
-                and not line.startswith(("1.", "2.", "3.", "-", "*"))
+                and not line.startswith(("1.", "2.", "3.", "4.", "5.", "-", "*"))
             ):
                 queries.append(line)
 
@@ -358,16 +358,18 @@ class PipelineOrchestrator:
             queries = [topic]
         if len(queries) < 2:
             queries.append(f"{topic} survey")
-        if len(queries) < 3:
+        while len(queries) < 3:
             queries.append(f"{' '.join(keywords[:3])}")
 
-        # Search both sources
+        # Search both sources — fetch more per query to improve coverage
+        target = self._task.max_papers
+        fetch_per_query = max(target * 2, 50)
         all_results = []
         for q in queries:
             arxiv_tool = self.tools.get("arxiv_search")
             if arxiv_tool:
                 arxiv_res = arxiv_tool.execute({
-                    "query": q, "max_results": self.config.max_papers,
+                    "query": q, "max_results": fetch_per_query,
                 })
                 if arxiv_res.success:
                     all_results.append(arxiv_res.data)
@@ -375,7 +377,7 @@ class PipelineOrchestrator:
             ss_tool = self.tools.get("semantic_scholar_search")
             if ss_tool:
                 ss_res = ss_tool.execute({
-                    "query": q, "max_results": self.config.max_papers,
+                    "query": q, "max_results": fetch_per_query,
                 })
                 if ss_res.success:
                     all_results.append(ss_res.data)
@@ -453,8 +455,15 @@ class PipelineOrchestrator:
             if ranked.success:
                 seeds = ranked.data.get("papers", seeds)
 
-        # 6. Truncate to max_papers
-        self._papers = seeds[:self.config.max_papers]
+        # 6. Enrich citation counts for arXiv papers (which have 0 from arXiv API)
+        enrich_tool = self.tools.get("enrich_citations")
+        if enrich_tool:
+            enriched = enrich_tool.execute({"papers": seeds})
+            if enriched.success:
+                seeds = enriched.data.get("papers", seeds)
+
+        # 7. Truncate to max_papers
+        self._papers = seeds[:self._task.max_papers]
         return self._papers
 
     def _analyze_papers(self, papers: list[dict]) -> str:
