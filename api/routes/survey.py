@@ -30,6 +30,18 @@ async def interrupt_survey(harness: Harness = Depends(get_harness)):
     return SurveyResponse(**info)
 
 
+@router.post("/cancel", response_model=SurveyResponse)
+async def cancel_survey(harness: Harness = Depends(get_harness)):
+    try:
+        harness.cancel()
+    except ValueError as e:
+        info = harness.get_task_info()
+        info["error"] = str(e)
+        return SurveyResponse(**info)
+    info = harness.get_task_info()
+    return SurveyResponse(**info)
+
+
 @router.post("/resume", response_model=SurveyResponse)
 async def resume_survey(harness: Harness = Depends(get_harness)):
     harness.resume()
