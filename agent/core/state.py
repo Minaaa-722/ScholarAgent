@@ -10,22 +10,23 @@ class AgentState(Enum):
     VALIDATION = auto()
     FEEDBACK = auto()
     INTERRUPTED = auto()
+    CANCELLED = auto()
     COMPLETE = auto()
     ERROR = auto()
 
 
 # Valid transitions: current_state -> set of allowed next states
 _TRANSITIONS = {
-    AgentState.IDLE: {AgentState.PLANNING, AgentState.ERROR},
-    AgentState.PLANNING: {AgentState.RETRIEVAL, AgentState.FEEDBACK, AgentState.ERROR, AgentState.INTERRUPTED},
-    AgentState.RETRIEVAL: {AgentState.ANALYSIS, AgentState.FEEDBACK, AgentState.ERROR, AgentState.INTERRUPTED},
-    AgentState.ANALYSIS: {AgentState.WRITING, AgentState.FEEDBACK, AgentState.ERROR, AgentState.INTERRUPTED},
-    AgentState.WRITING: {AgentState.VALIDATION, AgentState.FEEDBACK, AgentState.ERROR, AgentState.INTERRUPTED},
-    AgentState.VALIDATION: {AgentState.WRITING, AgentState.COMPLETE, AgentState.ERROR, AgentState.INTERRUPTED},
-    AgentState.FEEDBACK: {AgentState.WRITING, AgentState.RETRIEVAL, AgentState.ANALYSIS, AgentState.ERROR, AgentState.INTERRUPTED},
+    AgentState.IDLE: {AgentState.PLANNING, AgentState.ERROR, AgentState.CANCELLED},
+    AgentState.PLANNING: {AgentState.RETRIEVAL, AgentState.FEEDBACK, AgentState.ERROR, AgentState.INTERRUPTED, AgentState.CANCELLED},
+    AgentState.RETRIEVAL: {AgentState.ANALYSIS, AgentState.FEEDBACK, AgentState.ERROR, AgentState.INTERRUPTED, AgentState.CANCELLED},
+    AgentState.ANALYSIS: {AgentState.WRITING, AgentState.FEEDBACK, AgentState.ERROR, AgentState.INTERRUPTED, AgentState.CANCELLED},
+    AgentState.WRITING: {AgentState.VALIDATION, AgentState.FEEDBACK, AgentState.ERROR, AgentState.INTERRUPTED, AgentState.CANCELLED},
+    AgentState.VALIDATION: {AgentState.WRITING, AgentState.COMPLETE, AgentState.ERROR, AgentState.INTERRUPTED, AgentState.CANCELLED},
+    AgentState.FEEDBACK: {AgentState.WRITING, AgentState.RETRIEVAL, AgentState.ANALYSIS, AgentState.ERROR, AgentState.INTERRUPTED, AgentState.CANCELLED},
     AgentState.INTERRUPTED: {AgentState.PLANNING, AgentState.RETRIEVAL, AgentState.ANALYSIS,
-                             AgentState.WRITING, AgentState.VALIDATION, AgentState.COMPLETE, AgentState.ERROR},
-    AgentState.COMPLETE: set(),
+                             AgentState.WRITING, AgentState.VALIDATION, AgentState.COMPLETE, AgentState.ERROR, AgentState.CANCELLED},
+    AgentState.CANCELLED: set(),
     AgentState.ERROR: {
         AgentState.IDLE,
         AgentState.PLANNING,
@@ -52,7 +53,7 @@ class StateMachine:
         self.current_state = target
 
     def interrupt(self) -> None:
-        if self.current_state in (AgentState.INTERRUPTED, AgentState.IDLE, AgentState.COMPLETE):
+        if self.current_state in (AgentState.INTERRUPTED, AgentState.CANCELLED, AgentState.IDLE, AgentState.COMPLETE):
             raise ValueError(f"Cannot interrupt from {self.current_state.name}")
         self._prev_state = self.current_state
         self.current_state = AgentState.INTERRUPTED
@@ -64,4 +65,4 @@ class StateMachine:
         self._prev_state = None
 
     def is_terminal(self) -> bool:
-        return self.current_state in (AgentState.COMPLETE, AgentState.ERROR)
+        return self.current_state in (AgentState.COMPLETE, AgentState.ERROR, AgentState.CANCELLED)
