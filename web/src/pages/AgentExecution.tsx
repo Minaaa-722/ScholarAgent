@@ -107,6 +107,7 @@ export default function AgentExecution() {
 
   // Cancel dialog state
   const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [cancelledOnce, setCancelledOnce] = useState(false);
 
   const { showToast } = useToast();
 
@@ -185,6 +186,7 @@ export default function AgentExecution() {
     setShowCancelDialog(false);
     try {
       await cancelSurvey();
+      setCancelledOnce(true);
       setProgress(null);
       showToast("info", "任务已取消");
     } catch {
@@ -197,7 +199,6 @@ export default function AgentExecution() {
   const pipelineFinished = !connected
     && progress?.pipeline_running === false
     && progress?.task_started_at
-    && progress?.status !== "CANCELLED"
     && (progress?.status === "COMPLETE" || progress?.status === "ERROR");
   const pipelineRunning = progress?.pipeline_running === true;
   const isInterrupted = progress?.status === "INTERRUPTED";
@@ -466,7 +467,7 @@ export default function AgentExecution() {
   return (
     <div>
       <h2 className="page-title">Agent Execution</h2>
-      {!connected && !progress && renderDefaultPage()}
+      {!progress && (cancelledOnce || !connected) && renderDefaultPage()}
 
       {progress && (
         <div>
@@ -516,7 +517,6 @@ export default function AgentExecution() {
                   currentMessage={progress?.current_message ?? ""}
                   pipelineRunning={pipelineRunning}
                   pipelineError={progress?.status === "ERROR"}
-                  pipelineCancelled={progress?.status === "CANCELLED"}
                 />
               </div>
               <div>{renderFeedbackPanel()}</div>
@@ -531,7 +531,6 @@ export default function AgentExecution() {
                 currentMessage={progress?.current_message ?? ""}
                 pipelineRunning={pipelineRunning}
                 pipelineError={progress?.status === "ERROR"}
-                pipelineCancelled={progress?.status === "CANCELLED"}
               />
               {renderErrorPanel()}
               {pipelineFinished && progress?.status !== "ERROR" && (

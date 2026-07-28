@@ -135,7 +135,6 @@ export interface StageTimelineProps {
   currentMessage: string;
   pipelineRunning: boolean;
   pipelineError?: boolean;
-  pipelineCancelled?: boolean;
 }
 
 type StageStatus = "completed" | "active" | "pending" | "failed";
@@ -144,9 +143,7 @@ function getStageStatus(
   stage: string,
   currentStage: string,
   stageOrder: string[],
-  pipelineCancelled?: boolean,
 ): StageStatus {
-  if (pipelineCancelled) return "pending";
   const currentIdx = stageOrder.indexOf(currentStage);
   const stageIdx = stageOrder.indexOf(stage);
   if (currentIdx < 0 || stageIdx < 0) return "pending";
@@ -672,7 +669,6 @@ export default function StageTimeline(props: StageTimelineProps) {
     currentMessage,
     pipelineRunning,
     pipelineError,
-    pipelineCancelled = false,
   } = props;
 
   // Only show stages up to "retrying" (ignore "complete", "error" — handled by other panels)
@@ -683,7 +679,7 @@ export default function StageTimeline(props: StageTimelineProps) {
   return (
     <div style={{ position: "relative" }}>
       {displayStages.map((stage, index) => {
-        const status = getStageStatus(stage, currentStage, stageOrder, pipelineCancelled);
+        const status = getStageStatus(stage, currentStage, stageOrder);
         const label = stageLabels[stage] || stage;
         return (
           <StageEntry
