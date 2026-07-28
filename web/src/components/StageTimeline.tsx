@@ -181,7 +181,7 @@ function StageArtifact({
     case "planning":
       return details.plan ? (
         <div style={{ maxHeight: "360px", display: "flex", flexDirection: "column", minHeight: 0 }}>
-          <Card title="📋 研究计划">
+          <Card title="📋 研究计划" style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, marginBottom: 0 }}>
             <div style={SCROLLABLE_CONTENT_STYLE} dangerouslySetInnerHTML={{ __html: markdownToHtml(details.plan.preview.join("\n")) }} />
           </Card>
         </div>
@@ -221,53 +221,56 @@ function StageArtifact({
             </Card>
           )}
           {details.papers && (
-            <Card
-              title={`📄 检索到的论文（共 ${details.papers.total} 篇）`}
-            >
-              <div style={SCROLLABLE_CONTENT_STYLE}>
-                {details.papers.list.map((p, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      padding: "0.6rem",
-                      marginBottom: "0.4rem",
-                      background: "#fafafa",
-                      borderRadius: "var(--radius-md)",
-                      border: "1px solid var(--color-border-light)",
-                    }}
-                  >
-                    <div style={{ fontWeight: 600, fontSize: "var(--font-size-sm)" }}>
-                      {p.url ? (
-                        <a
-                          href={p.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{
-                            color: "var(--color-primary)",
-                            textDecoration: "none",
-                          }}
-                          title={p.url}
-                        >
-                          {p.title} ↗
-                        </a>
-                      ) : (
-                        p.title
-                      )}
-                    </div>
+            <div style={{ maxHeight: "360px", display: "flex", flexDirection: "column", minHeight: 0 }}>
+              <Card
+                title={`📄 检索到的论文（共 ${details.papers.total} 篇）`}
+                style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, marginBottom: 0 }}
+              >
+                <div style={SCROLLABLE_CONTENT_STYLE}>
+                  {details.papers.list.map((p, i) => (
                     <div
+                      key={i}
                       style={{
-                        fontSize: "var(--font-size-xs)",
-                        color: "var(--color-text-secondary)",
-                        marginTop: "0.2rem",
+                        padding: "0.6rem",
+                        marginBottom: "0.4rem",
+                        background: "#fafafa",
+                        borderRadius: "var(--radius-md)",
+                        border: "1px solid var(--color-border-light)",
                       }}
                     >
-                      {p.authors} · {p.year} · 引用: {p.citations}
-                      {p.source && <span> · 来源: {p.source}</span>}
+                      <div style={{ fontWeight: 600, fontSize: "var(--font-size-sm)" }}>
+                        {p.url ? (
+                          <a
+                            href={p.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              color: "var(--color-primary)",
+                              textDecoration: "none",
+                            }}
+                            title={p.url}
+                          >
+                            {p.title} ↗
+                          </a>
+                        ) : (
+                          p.title
+                        )}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "var(--font-size-xs)",
+                          color: "var(--color-text-secondary)",
+                          marginTop: "0.2rem",
+                        }}
+                      >
+                        {p.authors} · {p.year} · 引用: {p.citations}
+                        {p.source && <span> · 来源: {p.source}</span>}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
+                  ))}
+                </div>
+              </Card>
+            </div>
           )}
           {!details.search_queries && !details.papers && (
             <p className="text-disabled" style={{ fontSize: "var(--font-size-sm)" }}>
@@ -280,7 +283,7 @@ function StageArtifact({
     case "analysis":
       return details.analysis ? (
         <div style={{ maxHeight: "360px", display: "flex", flexDirection: "column", minHeight: 0 }}>
-          <Card title="🔬 论文分析">
+          <Card title="🔬 论文分析" style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, marginBottom: 0 }}>
             <div style={SCROLLABLE_CONTENT_STYLE} dangerouslySetInnerHTML={{ __html: markdownToHtml(details.analysis.preview) }} />
           </Card>
         </div>
