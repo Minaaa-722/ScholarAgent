@@ -209,13 +209,13 @@ class Harness:
         # Share benchmark_store reference with the orchestrator
         self._orchestrator._benchmark_store = self._benchmark_store
 
-        # Add EvidenceChecker to the validator list (uses the orchestrator's evidence store)
+        # Add EvidenceChecker to the validator list (uses the orchestrator's stores)
         from agent.evidence.checker import EvidenceChecker
         self._validators.append(
             EvidenceChecker(
                 evidence_store=self._orchestrator._evidence_store,
-                benchmark_store=self._benchmark_store,
-                knowledge_base=self._knowledge_base,
+                benchmark_store=self._orchestrator._benchmark_store,
+                knowledge_base=self._orchestrator._paper_knowledge_base,
                 llm=llm,
             )
         )

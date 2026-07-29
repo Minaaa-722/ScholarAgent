@@ -65,6 +65,7 @@ class OpenAILLM(LLMBase):
         "gpt-4-turbo": 128_000,
         "gpt-3.5-turbo": 16_000,
         "deepseek-v4-flash": 128_000,
+        "deepseek-r1": 128_000,
         "deepseek-chat": 128_000,
         "deepseek-reasoner": 128_000,
     }
