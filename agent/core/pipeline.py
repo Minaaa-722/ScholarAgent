@@ -11,6 +11,14 @@ from agent.core.llm import LLMBase, LLMResponse
 from agent.evidence.evidence_store import EvidenceStore, ClaimContextBuilder
 from agent.evidence.claim_extractor import ClaimExtractor
 from agent.evidence.verifier import ClaimVerifier
+from agent.evidence.benchmark_store import BenchmarkStore
+from agent.evidence.paper_knowledge import PaperKnowledgeBase
+from agent.evidence.benchmark_extractor import BenchmarkExtractor
+from agent.evidence.paper_analyzer import PaperAnalyzer
+from agent.evidence.pdf_parser import PDFParser, PDFChunk
+from agent.evidence.evidence_extractor import EvidenceExtractor
+from agent.evidence.evidence_reference import EvidenceReference
+from agent.evidence.context_retriever import ContextRetriever, EvidenceContextBuilder
 from agent.feedback.base import ValidationResult, Validator
 from agent.guardrails.manager import GuardrailManager
 from agent.tools.registry import ToolRegistry
@@ -93,6 +101,23 @@ class PipelineOrchestrator:
         self._claim_extractor = ClaimExtractor(self.llm)
         self._claim_verifier = ClaimVerifier(self.llm)
 
+        # Evidence grounding layer (Task 6)
+        from agent.evidence.benchmark_store import BenchmarkStore
+        from agent.evidence.paper_knowledge import PaperKnowledgeBase
+        from agent.evidence.benchmark_extractor import BenchmarkExtractor
+        from agent.evidence.paper_analyzer import PaperAnalyzer
+        from agent.evidence.pdf_parser import PDFParser
+        from agent.evidence.evidence_extractor import EvidenceExtractor
+        self._benchmark_store = BenchmarkStore()
+        self._paper_knowledge_base = PaperKnowledgeBase()
+        self._benchmark_extractor = BenchmarkExtractor(self.llm)
+        self._paper_analyzer = PaperAnalyzer(self.llm)
+        self._pdf_parser = PDFParser()
+        self._evidence_extractor = EvidenceExtractor(self.llm)
+        self._pdf_chunks: dict[str, list[PDFChunk]] = {}
+        self._evidence_refs: list[EvidenceReference] = []
+        self._evidence_unavailable: set[str] = set()
+
         # Progress tracking (read by Harness for API responses)
         self.current_stage: str = ""
         self.current_message: str = ""
@@ -152,6 +177,11 @@ class PipelineOrchestrator:
         self._pending_revisions = []
         self.latex_repair_log = None
         self._evidence_store.clear()
+        self._benchmark_store.clear()
+        self._paper_knowledge_base.clear()
+        self._pdf_chunks.clear()
+        self._evidence_refs.clear()
+        self._evidence_unavailable.clear()
         self.current_stage = ""
         self.current_message = ""
 
@@ -175,7 +205,7 @@ class PipelineOrchestrator:
             return PipelineResult(status="interrupted", execution_log=self.execution_log)
 
         # ---- Stage 1: PLANNING ----
-        self._progress(on_progress, "planning", "Generating research plan…")
+        self._progress(on_progress, "planning", "Generating research plan?")
         plan = self._retry_on_error(
             lambda: self._generate_plan(), AgentState.PLANNING, on_progress)
         self._log("PLANNING", {"plan": plan[:300] if plan else ""})
@@ -185,7 +215,7 @@ class PipelineOrchestrator:
         self._check_human_feedback(on_progress)
 
         # ---- Stage 2: RETRIEVAL ----
-        self._progress(on_progress, "retrieval", "Searching arXiv and Semantic Scholar…")
+        self._progress(on_progress, "retrieval", "Searching arXiv and Semantic Scholar?")
         papers = self._retry_on_error(
             lambda: self._retrieve_papers(), AgentState.RETRIEVAL, on_progress)
         # Apply guardrail: filter papers
@@ -197,7 +227,7 @@ class PipelineOrchestrator:
         self._check_human_feedback(on_progress)
 
         # ---- Stage 3: ANALYSIS ----
-        self._progress(on_progress, "analysis", "Analyzing retrieved papers…")
+        self._progress(on_progress, "analysis", "Analyzing retrieved papers?")
         analysis = self._retry_on_error(
             lambda: self._analyze_papers(papers), AgentState.ANALYSIS, on_progress)
         self._log("ANALYSIS", {"analysis_summary": (analysis or "")[:300]})
@@ -217,7 +247,7 @@ class PipelineOrchestrator:
             # 4. WRITING
             self._progress(
                 on_progress, "writing",
-                f"Writing survey draft (round {rounds + 1})…",
+                f"Writing survey draft (round {rounds + 1})?",
             )
             draft = self._retry_on_error(
                 lambda: self._write_survey(analysis, rounds),
@@ -232,7 +262,7 @@ class PipelineOrchestrator:
             # ---- Format Repair ----
             self._progress(
                 on_progress, "format_repair",
-                "Applying CVPR format repair rules…",
+                "Applying CVPR format repair rules?",
             )
             draft = self._format_repair(draft)
             final_draft = draft
@@ -242,7 +272,7 @@ class PipelineOrchestrator:
             # 5. VALIDATION
             self._progress(
                 on_progress, "validation",
-                "Running 5-dimension quality validation on CVPR-formatted draft…",
+                "Running 5-dimension quality validation on CVPR-formatted draft?",
             )
             results = self._run_validators(draft)
             report = self._aggregate_results(results)
@@ -311,7 +341,7 @@ class PipelineOrchestrator:
             f"Keywords: {keywords}\n"
             f"Goal: {goal}\n\n"
             f"Please produce a structured outline for a CVPR-format survey paper. "
-            f"Focus on the years {self.config.year_start}–{self.config.year_end}."
+            f"Focus on the years {self.config.year_start}?{self.config.year_end}."
         )
 
         # Guardrail: rate limit check before LLM call
@@ -392,6 +422,61 @@ class PipelineOrchestrator:
 
         self._papers = papers[:self.config.max_papers]
         self._retrieved_queries = queries
+
+        # ---- PDF Download & Evidence Extraction ----
+        self._pdf_chunks.clear()
+        self._evidence_refs.clear()
+        self._evidence_unavailable.clear()
+
+        for paper in self._papers:
+            arxiv_id = paper.get("arxiv_id", "")
+            paper_id = paper.get("paper_id", arxiv_id)
+            if not arxiv_id:
+                continue
+
+            pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+            save_path = f"/tmp/papers/{arxiv_id}.pdf"
+
+            try:
+                # Download PDF
+                pdf_tool = self.tools.get("pdf_download")
+                if pdf_tool:
+                    dl_res = pdf_tool.execute({"url": pdf_url, "save_path": save_path})
+                    if not dl_res.success:
+                        logger.warning("PDF download failed for %s (%s): %s", paper_id, pdf_url, dl_res.error)
+                        self._evidence_unavailable.add(paper_id)
+                        continue
+                else:
+                    # No PDF download tool available -- skip
+                    continue
+
+                # Parse into chunks
+                chunks = self._pdf_parser.parse(paper_id, save_path)
+                if not chunks:
+                    logger.warning("PDF parsing returned no chunks for %s", paper_id)
+                    self._evidence_unavailable.add(paper_id)
+                    continue
+
+                self._pdf_chunks[paper_id] = chunks
+
+                # Extract evidence references
+                refs = self._evidence_extractor.extract(chunks)
+                if refs:
+                    self._evidence_refs.extend(refs)
+                    logger.info("Evidence: %d refs extracted from %s", len(refs), paper_id)
+                else:
+                    logger.info("Evidence: no refs extracted from %s", paper_id)
+
+            except Exception as e:
+                logger.warning("Evidence extraction failed for paper %s: %s", paper_id, e)
+                self._evidence_unavailable.add(paper_id)
+
+        logger.info(
+            "Evidence: %d papers with evidence, %d unavailable, %d total refs",
+            len(self._pdf_chunks),
+            len(self._evidence_unavailable),
+            len(self._evidence_refs),
+        )
         return self._papers
 
     def _analyze_papers(self, papers: list[dict]) -> str:
@@ -419,6 +504,8 @@ class PipelineOrchestrator:
             self._analysis = resp.text
             # Extract and verify claims from analysis
             self._extract_and_verify_claims(papers)
+            # Extract benchmarks and paper knowledge from evidence references
+            self._extract_benchmarks_and_knowledge()
             return resp.text
 
         paper_summaries = []
@@ -454,7 +541,38 @@ class PipelineOrchestrator:
         self._analysis = resp.text
         # Extract and verify claims from analysis
         self._extract_and_verify_claims(papers)
+        # Extract benchmarks and paper knowledge from evidence references
+        self._extract_benchmarks_and_knowledge()
         return resp.text
+
+    def _extract_benchmarks_and_knowledge(self) -> None:
+        """Extract benchmark records and paper knowledge from evidence references.
+
+        Called after paper analysis to populate the benchmark_store and
+        paper_knowledge_base. Failures are logged but do not block the pipeline.
+        """
+        try:
+            if self._evidence_refs:
+                # Extract benchmark records
+                benchmark_records = self._benchmark_extractor.extract(self._evidence_refs)
+                if benchmark_records:
+                    self._benchmark_store.add_records(benchmark_records)
+                    logger.info("Evidence: %d benchmark records extracted", len(benchmark_records))
+                else:
+                    logger.info("Evidence: no benchmark records extracted")
+
+                # Extract paper knowledge
+                knowledge_list = self._paper_analyzer.analyze(self._evidence_refs)
+                if knowledge_list:
+                    for pk in knowledge_list:
+                        self._paper_knowledge_base.add(pk)
+                    logger.info("Evidence: knowledge extracted for %d papers", len(knowledge_list))
+                else:
+                    logger.info("Evidence: no paper knowledge extracted")
+            else:
+                logger.info("Evidence: no evidence refs available for benchmark/knowledge extraction")
+        except Exception as e:
+            logger.warning("Evidence benchmark/knowledge extraction failed: %s", e)
 
     def _write_survey(self, analysis: str, round_num: int) -> str:
         """Use LLM to write the survey paper in CVPR format."""
@@ -535,8 +653,14 @@ class PipelineOrchestrator:
             "You are an academic writing assistant specializing in computer vision surveys. "
             f"{writing_instruction}\n\n{cvpr_format_instructions}"
         )
-        # Evidence context for factual grounding
-        evidence_context = ClaimContextBuilder.build(self._evidence_store)
+        # Evidence context for factual grounding (from all three stores)
+        retriever = ContextRetriever(
+            evidence_store=self._evidence_store,
+            benchmark_store=self._benchmark_store,
+            knowledge_base=self._paper_knowledge_base,
+        )
+        context = retriever.retrieve_for_section()
+        evidence_context = EvidenceContextBuilder.format(context)
 
         user_msg = (
             f"Title: A Comprehensive Survey on {topic}\n"
@@ -648,10 +772,10 @@ class PipelineOrchestrator:
             self._feedback_history.append(feedback)
 
         short = feedback["content"][:60]
-        self._progress(on_progress, "feedback", f"Processing feedback ({feedback['category']}): {short}…")
+        self._progress(on_progress, "feedback", f"Processing feedback ({feedback['category']}): {short}?")
 
         if feedback["category"] == "supplement_papers":
-            self._progress(on_progress, "retrieval", f"Supplementing papers: {short}…")
+            self._progress(on_progress, "retrieval", f"Supplementing papers: {short}?")
             new_papers = self._supplement_retrieval(feedback["content"])
             self._papers.extend(new_papers)
             seen_titles = set()
@@ -662,7 +786,7 @@ class PipelineOrchestrator:
                     seen_titles.add(t)
                     deduped.append(p)
             self._papers = deduped
-            self._progress(on_progress, "analysis", "Re-analyzing with supplemented papers…")
+            self._progress(on_progress, "analysis", "Re-analyzing with supplemented papers?")
             self._analysis = self._analyze_papers(self._papers)
 
         elif feedback["category"] == "expand_section":
@@ -672,7 +796,7 @@ class PipelineOrchestrator:
             self._pending_revisions.append(feedback["content"])
 
         feedback["status"] = "applied"
-        self._progress(on_progress, "feedback", f"Feedback applied: {short}…")
+        self._progress(on_progress, "feedback", f"Feedback applied: {short}?")
 
     def _supplement_retrieval(self, feedback_content: str) -> list[dict]:
         """Perform additional paper retrieval based on feedback content."""
@@ -741,14 +865,14 @@ class PipelineOrchestrator:
                 if attempt <= self.config.max_pipeline_retries:
                     wait = 2 ** attempt
                     logger.warning(
-                        "Stage %s failed (attempt %d/%d): %s. Retrying in %ds …",
+                        "Stage %s failed (attempt %d/%d): %s. Retrying in %ds ?",
                         stage.name, attempt, self.config.max_pipeline_retries + 1, e, wait,
                     )
                     self._progress(
                         on_progress, "retrying",
-                        f"⚠ {stage.name} failed (attempt {attempt}/"
+                        f"? {stage.name} failed (attempt {attempt}/"
                         f"{self.config.max_pipeline_retries + 1}): "
-                        f"{e!s:.80}. Retrying in {wait}s …",
+                        f"{e!s:.80}. Retrying in {wait}s ?",
                     )
                     time.sleep(wait)
                 else:
@@ -788,7 +912,7 @@ class PipelineOrchestrator:
         return early.
         """
         if self._interrupt_event and self._interrupt_event.is_set():
-            logger.info("Pipeline interrupted — exiting stage loop")
+            logger.info("Pipeline interrupted -- exiting stage loop")
             return True
         return False
 

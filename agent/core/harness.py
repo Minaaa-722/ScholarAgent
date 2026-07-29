@@ -199,15 +199,13 @@ class Harness:
         )
         self._orchestrator.set_interrupt_event(self._interrupt_event)
 
-        # Add EvidenceChecker to the validator list (uses the orchestrator's evidence store)
+        # Add EvidenceChecker to the validator list (uses the orchestrator's stores)
         from agent.evidence.checker import EvidenceChecker
-        from agent.evidence.benchmark_store import BenchmarkStore
-        from agent.evidence.paper_knowledge import PaperKnowledgeBase
         self._validators.append(
             EvidenceChecker(
                 evidence_store=self._orchestrator._evidence_store,
-                benchmark_store=BenchmarkStore(),
-                knowledge_base=PaperKnowledgeBase(),
+                benchmark_store=self._orchestrator._benchmark_store,
+                knowledge_base=self._orchestrator._paper_knowledge_base,
                 llm=llm,
             )
         )
