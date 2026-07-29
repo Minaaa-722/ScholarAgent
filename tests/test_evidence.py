@@ -17,6 +17,8 @@ from agent.evidence.checker import EvidenceChecker
 from agent.evidence.evidence_reference import EvidenceReference, KnowledgeField, DatasetReference
 from agent.evidence.pdf_parser import PDFChunk, ChunkFilter
 from agent.evidence.evidence_extractor import EvidenceReferenceValidator, EvidenceExtractor
+from agent.evidence.benchmark_store import BenchmarkRecord, BenchmarkStore
+from agent.evidence.paper_knowledge import ArchitectureKnowledge, TrainingKnowledge, PaperKnowledge, PaperKnowledgeBase
 from agent.core.llm import MockLLM
 from agent.feedback.base import ValidationResult
 
@@ -860,3 +862,300 @@ class TestEvidenceExtractor:
         refs = extractor.extract(chunks)
         assert len(refs) == 1
         assert refs[0].excerpt == "The transformer architecture uses attention"
+
+
+# =========================================================================
+# BenchmarkRecord
+# =========================================================================
+
+class TestBenchmarkRecord:
+    def test_benchmark_record_creation(self):
+        """BenchmarkRecord creation with all fields."""
+        ref = EvidenceReference(paper_id="paper123", excerpt="MMLU score 85.3%")
+        record = BenchmarkRecord(
+            id="custom_id_1",
+            model_name="Qwen2-VL",
+            benchmark_name="MMLU",
+            metric="accuracy",
+            score="85.3",
+            score_unit="%",
+            split="test",
+            source=ref,
+            verified=True,
+        )
+        assert record.id == "custom_id_1"
+        assert record.model_name == "Qwen2-VL"
+        assert record.benchmark_name == "MMLU"
+        assert record.metric == "accuracy"
+        assert record.score == "85.3"
+        assert record.score_unit == "%"
+        assert record.split == "test"
+        assert record.source.excerpt == "MMLU score 85.3%"
+        assert record.verified is True
+
+    def test_benchmark_record_defaults(self):
+        """BenchmarkRecord with default values (auto-generated id)."""
+        record = BenchmarkRecord(
+            model_name="TestModel",
+            benchmark_name="MathVista",
+            metric="pass@1",
+            score="72.5",
+        )
+        assert record.model_name == "TestModel"
+        assert record.score_unit == "%"  # default
+        assert record.verified is False
+        assert record.split == ""
+        assert len(record.id) == 12  # auto-generated uuid hex
+        assert isinstance(record.id, str)
+
+    def test_benchmark_record_auto_id(self):
+        """BenchmarkRecord auto-generates id when not provided."""
+        record = BenchmarkRecord(
+            model_name="M",
+            benchmark_name="B",
+            metric="acc",
+            score="90",
+        )
+        assert len(record.id) == 12
+
+
+# =========================================================================
+# BenchmarkStore
+# =========================================================================
+
+class TestBenchmarkStore:
+    def test_benchmark_store_add_and_retrieve(self):
+        """Add records, retrieve by model, lookup."""
+        store = BenchmarkStore()
+        records = [
+            BenchmarkRecord(id="r1", model_name="Qwen2-VL", benchmark_name="MMLU", metric="accuracy", score="85.3"),
+            BenchmarkRecord(id="r2", model_name="Qwen2-VL", benchmark_name="MathVista", metric="pass@1", score="72.5"),
+            BenchmarkRecord(id="r3", model_name="MiniCPM-V", benchmark_name="MMLU", metric="accuracy", score="82.1"),
+        ]
+        store.add_records(records)
+        assert len(store.get_all()) == 3
+
+        # get_by_model
+        qwen = store.get_by_model("Qwen2-VL")
+        assert len(qwen) == 2
+        assert qwen[0].id == "r1"
+        assert qwen[1].id == "r2"
+
+        minicpm = store.get_by_model("MiniCPM-V")
+        assert len(minicpm) == 1
+        assert minicpm[0].id == "r3"
+
+        # lookup (benchmark only)
+        mmlu = store.lookup("MMLU")
+        assert len(mmlu) == 2
+        assert {r.id for r in mmlu} == {"r1", "r3"}
+
+        # lookup (benchmark + model)
+        mmlu_qwen = store.lookup("MMLU", "Qwen2-VL")
+        assert len(mmlu_qwen) == 1
+        assert mmlu_qwen[0].id == "r1"
+
+    def test_benchmark_store_mark_verified(self):
+        """Mark records as verified by ID."""
+        store = BenchmarkStore()
+        records = [
+            BenchmarkRecord(id="r1", model_name="M1", benchmark_name="B1", metric="acc", score="90"),
+            BenchmarkRecord(id="r2", model_name="M2", benchmark_name="B2", metric="acc", score="80"),
+            BenchmarkRecord(id="r3", model_name="M3", benchmark_name="B3", metric="acc", score="70"),
+        ]
+        store.add_records(records)
+
+        count = store.mark_verified(["r1", "r3"])
+        assert count == 2
+
+        verified = store.get_verified()
+        assert len(verified) == 2
+        assert {r.id for r in verified} == {"r1", "r3"}
+
+        # Verify r2 is still unverified
+        assert store.get_by_model("M2")[0].verified is False
+
+    def test_benchmark_store_mark_verified_idempotent(self):
+        """Marking already-verified records does not double-count."""
+        store = BenchmarkStore()
+        store.add_records([BenchmarkRecord(id="r1", model_name="M", benchmark_name="B", metric="acc", score="90")])
+        assert store.mark_verified(["r1"]) == 1
+        assert store.mark_verified(["r1"]) == 0  # already verified
+        assert store.verified_count() == 1
+
+    def test_benchmark_store_clear(self):
+        """Clear resets store."""
+        store = BenchmarkStore()
+        store.add_records([BenchmarkRecord(id="r1", model_name="M", benchmark_name="B", metric="acc", score="90")])
+        assert len(store.get_all()) == 1
+        store.clear()
+        assert len(store.get_all()) == 0
+
+    def test_benchmark_store_get_verified_filtered(self):
+        """get_verified with benchmark_name filter."""
+        store = BenchmarkStore()
+        store.add_records([
+            BenchmarkRecord(id="r1", model_name="M1", benchmark_name="MMLU", metric="acc", score="90"),
+            BenchmarkRecord(id="r2", model_name="M2", benchmark_name="MMLU", metric="acc", score="85"),
+            BenchmarkRecord(id="r3", model_name="M3", benchmark_name="MathVista", metric="acc", score="80"),
+        ])
+        store.mark_verified(["r1", "r2", "r3"])
+        mmlu_verified = store.get_verified(benchmark_name="MMLU")
+        assert len(mmlu_verified) == 2
+        assert {r.id for r in mmlu_verified} == {"r1", "r2"}
+
+    def test_benchmark_store_lookup_no_match(self):
+        """lookup returns empty list when no match."""
+        store = BenchmarkStore()
+        store.add_records([BenchmarkRecord(id="r1", model_name="M", benchmark_name="B", metric="acc", score="90")])
+        assert store.lookup("NonExistent") == []
+        assert store.lookup("B", "NonExistent") == []
+
+
+# =========================================================================
+# PaperKnowledge, ArchitectureKnowledge, TrainingKnowledge
+# =========================================================================
+
+class TestPaperKnowledge:
+    def test_paper_knowledge_creation(self):
+        """PaperKnowledge creation with structured fields."""
+        arch = ArchitectureKnowledge(
+            vision_encoder=KnowledgeField(value="ViT-L/14"),
+            language_model=KnowledgeField(value="Qwen2-7B"),
+            connector=KnowledgeField(value="MLP projector"),
+        )
+        training = TrainingKnowledge(
+            pretraining_dataset=KnowledgeField(value="LAION-5B"),
+            instruction_dataset=KnowledgeField(value="LLaVA-Instruct-150K"),
+            optimization_method=KnowledgeField(value="AdamW"),
+        )
+        ds = DatasetReference(name="ImageNet-1K")
+
+        pk = PaperKnowledge(
+            paper_id="qwen2024",
+            title="Qwen2-VL: Better Vision-Language Model",
+            problem_definition="Vision-language model alignment",
+            motivation="Improve multimodal understanding",
+            main_contribution="Dynamic resolution approach",
+            architecture=arch,
+            training=training,
+            datasets=[ds],
+            benchmark_references=["MMLU", "MathVista"],
+            limitations="Limited to English",
+        )
+        assert pk.paper_id == "qwen2024"
+        assert pk.title == "Qwen2-VL: Better Vision-Language Model"
+        assert pk.problem_definition == "Vision-language model alignment"
+        assert pk.motivation == "Improve multimodal understanding"
+        assert pk.main_contribution == "Dynamic resolution approach"
+        assert pk.architecture.vision_encoder.value == "ViT-L/14"
+        assert pk.architecture.language_model.value == "Qwen2-7B"
+        assert pk.architecture.connector.value == "MLP projector"
+        assert pk.training.pretraining_dataset.value == "LAION-5B"
+        assert pk.training.instruction_dataset.value == "LLaVA-Instruct-150K"
+        assert pk.training.optimization_method.value == "AdamW"
+        assert len(pk.datasets) == 1
+        assert pk.datasets[0].name == "ImageNet-1K"
+        assert pk.benchmark_references == ["MMLU", "MathVista"]
+        assert pk.limitations == "Limited to English"
+        assert pk.evidence_refs == []
+
+    def test_paper_knowledge_defaults(self):
+        """PaperKnowledge with minimal fields."""
+        pk = PaperKnowledge(paper_id="test123")
+        assert pk.paper_id == "test123"
+        assert pk.title == ""
+        assert pk.architecture is None
+        assert pk.training is None
+        assert pk.datasets == []
+        assert pk.benchmark_references == []
+        assert pk.evidence_refs == []
+
+    def test_paper_knowledge_evidence_refs(self):
+        """PaperKnowledge.evidence_refs holds paper-level evidence."""
+        ref = EvidenceReference(paper_id="p1", excerpt="Paper-level evidence")
+        pk = PaperKnowledge(
+            paper_id="p1",
+            evidence_refs=[ref],
+        )
+        assert len(pk.evidence_refs) == 1
+        assert pk.evidence_refs[0].excerpt == "Paper-level evidence"
+
+    def test_architecture_knowledge_defaults(self):
+        """ArchitectureKnowledge with default values."""
+        arch = ArchitectureKnowledge()
+        assert arch.vision_encoder.value == ""
+        assert arch.language_model.value == ""
+        assert arch.connector.value == ""
+        assert arch.fusion_method.value == ""
+        assert arch.resolution_strategy.value == ""
+
+    def test_training_knowledge_defaults(self):
+        """TrainingKnowledge with default values."""
+        training = TrainingKnowledge()
+        assert training.pretraining_dataset.value == ""
+        assert training.instruction_dataset.value == ""
+        assert training.optimization_method.value == ""
+        assert training.loss_function.value == ""
+        assert training.training_stage.value == ""
+
+    def test_architecture_knowledge_with_evidence(self):
+        """ArchitectureKnowledge fields carry their own evidence."""
+        ref = EvidenceReference(paper_id="p1", excerpt="Uses ViT")
+        arch = ArchitectureKnowledge(
+            vision_encoder=KnowledgeField(value="ViT-L/14", evidence_refs=[ref]),
+        )
+        assert arch.vision_encoder.value == "ViT-L/14"
+        assert len(arch.vision_encoder.evidence_refs) == 1
+        assert arch.vision_encoder.evidence_refs[0].excerpt == "Uses ViT"
+        # Other fields should be empty
+        assert arch.language_model.value == ""
+        assert arch.connector.value == ""
+
+
+# =========================================================================
+# PaperKnowledgeBase
+# =========================================================================
+
+class TestPaperKnowledgeBase:
+    def test_paper_knowledge_base_add_and_get(self):
+        """Add a PaperKnowledge and retrieve by paper_id."""
+        pk = PaperKnowledge(paper_id="qwen2024", title="Qwen2-VL")
+        base = PaperKnowledgeBase()
+        base.add(pk)
+        retrieved = base.get("qwen2024")
+        assert retrieved is not None
+        assert retrieved.paper_id == "qwen2024"
+        assert retrieved.title == "Qwen2-VL"
+
+    def test_paper_knowledge_base_get_nonexistent(self):
+        """get returns None for unknown paper_id."""
+        base = PaperKnowledgeBase()
+        assert base.get("nonexistent") is None
+
+    def test_paper_knowledge_base_get_all(self):
+        """get_all returns all stored objects."""
+        base = PaperKnowledgeBase()
+        base.add(PaperKnowledge(paper_id="p1", title="Paper 1"))
+        base.add(PaperKnowledge(paper_id="p2", title="Paper 2"))
+        all_pk = base.get_all()
+        assert len(all_pk) == 2
+        titles = {pk.title for pk in all_pk}
+        assert titles == {"Paper 1", "Paper 2"}
+
+    def test_paper_knowledge_base_clear(self):
+        """Clear resets the knowledge base."""
+        base = PaperKnowledgeBase()
+        base.add(PaperKnowledge(paper_id="p1", title="Paper 1"))
+        assert len(base.get_all()) == 1
+        base.clear()
+        assert len(base.get_all()) == 0
+
+    def test_paper_knowledge_base_overwrite(self):
+        """Adding same paper_id replaces existing entry."""
+        base = PaperKnowledgeBase()
+        base.add(PaperKnowledge(paper_id="p1", title="Original"))
+        base.add(PaperKnowledge(paper_id="p1", title="Updated"))
+        retrieved = base.get("p1")
+        assert retrieved.title == "Updated"
+        assert len(base.get_all()) == 1
