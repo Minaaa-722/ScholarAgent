@@ -17,6 +17,9 @@ from agent.feedback.check_word_count import WordCountChecker
 from agent.feedback.detect_hallucination import HallucinationDetector
 from agent.feedback.polish_language import LanguagePolisher
 from agent.feedback.latex_repair import LatexFormatRepair
+from agent.evidence.benchmark_store import BenchmarkStore
+from agent.evidence.paper_knowledge import PaperKnowledgeBase
+from agent.evidence.citation_store import CitationStore
 from agent.tools.retrieval import ArxivSearch, SemanticScholarSearch, MergeResults
 from agent.tools.processing import SortByCitation, FormatBibtex, PdfDownload, PdfParse, Dedup
 from agent.tools.auxiliary import WebSearch, ShellExec
@@ -188,6 +191,11 @@ class Harness:
         # Interrupt event (shared between Harness and PipelineOrchestrator)
         self._interrupt_event = threading.Event()
 
+        # Phase 2: Citation Integrity Layer stores
+        self._benchmark_store = BenchmarkStore()
+        self._knowledge_base = PaperKnowledgeBase()
+        self._citation_store = CitationStore()
+
         # PipelineOrchestrator — the new pipeline engine
         self._orchestrator = PipelineOrchestrator(
             llm=llm,
@@ -198,16 +206,16 @@ class Harness:
             latex_repair=LatexFormatRepair(),
         )
         self._orchestrator.set_interrupt_event(self._interrupt_event)
+        # Share benchmark_store reference with the orchestrator
+        self._orchestrator._benchmark_store = self._benchmark_store
 
         # Add EvidenceChecker to the validator list (uses the orchestrator's evidence store)
         from agent.evidence.checker import EvidenceChecker
-        from agent.evidence.benchmark_store import BenchmarkStore
-        from agent.evidence.paper_knowledge import PaperKnowledgeBase
         self._validators.append(
             EvidenceChecker(
                 evidence_store=self._orchestrator._evidence_store,
-                benchmark_store=BenchmarkStore(),
-                knowledge_base=PaperKnowledgeBase(),
+                benchmark_store=self._benchmark_store,
+                knowledge_base=self._knowledge_base,
                 llm=llm,
             )
         )

@@ -28,6 +28,10 @@ from agent.evidence.context_retriever import (
     ContextRetriever,
     EvidenceContextBuilder,
 )
+from agent.evidence.citation_store import CitationEntry, CitationStore
+from agent.evidence.citation_anchor_store import CitationAnchor, CitationAnchorStore
+from agent.evidence.citation_injector import CitationInjector
+from agent.evidence.table_generator import BenchmarkTableGenerator
 from agent.core.llm import MockLLM
 from agent.feedback.base import ValidationResult
 
@@ -2196,9 +2200,10 @@ class TestCitationStore:
         store.register({"title": "Z Paper", "authors": ["Zed"], "year": 2024, "arxiv_id": "2403.1"})
         store.register({"title": "A Paper", "authors": ["Alpha"], "year": 2023, "arxiv_id": "2303.1"})
         bib = store.generate_references_bib()
-        # The sorted order can be checked by the fact that "alpha2023a" sorts before "zed2024z"
-        alpha_idx = bib.find("alpha2023a")
-        zed_idx = bib.find("zed2024z")
+        # The keyword for both is "paper" (single-letter "Z" and "A" are filtered)
+        # alpha2023paper sorts before zed2024paper
+        alpha_idx = bib.find("alpha2023paper")
+        zed_idx = bib.find("zed2024paper")
         assert alpha_idx >= 0 and zed_idx >= 0
         assert alpha_idx < zed_idx
 
@@ -2561,7 +2566,7 @@ class TestBenchmarkTableGenerator:
         assert "\\begin{table}" in table
         assert "MMLU" in table
         assert "Qwen2-VL" in table
-        assert "85.3\\%" in table
+        assert "85.3%" in table
         assert f"\\cite{{{key}}}" in table
         assert "\\end{table}" in table
 
@@ -2646,7 +2651,7 @@ class TestBenchmarkTableGenerator:
         result = generator.replace_tables(draft)
         assert "[TABLE:benchmark_MMLU]" not in result
         assert "\\begin{table}" in result
-        assert "85.3\\%" in result
+        assert "85.3%" in result
 
     def test_replace_tables_unknown_marker(self):
         """Unknown marker is kept as-is."""

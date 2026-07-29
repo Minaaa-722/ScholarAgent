@@ -11,6 +11,11 @@ from agent.core.llm import LLMBase, LLMResponse
 from agent.evidence.evidence_store import EvidenceStore, ClaimContextBuilder
 from agent.evidence.claim_extractor import ClaimExtractor
 from agent.evidence.verifier import ClaimVerifier
+from agent.evidence.citation_store import CitationStore
+from agent.evidence.citation_anchor_store import CitationAnchorStore
+from agent.evidence.citation_injector import CitationInjector
+from agent.evidence.table_generator import BenchmarkTableGenerator
+from agent.evidence.context_retriever import EvidenceContextBuilder, ContextRetriever, SimpleRanker
 from agent.feedback.base import ValidationResult, Validator
 from agent.guardrails.manager import GuardrailManager
 from agent.tools.registry import ToolRegistry
@@ -93,6 +98,17 @@ class PipelineOrchestrator:
         self._claim_extractor = ClaimExtractor(self.llm)
         self._claim_verifier = ClaimVerifier(self.llm)
 
+        # Phase 2: Citation Integrity Layer
+        self._citation_store = CitationStore()
+        self._citation_anchor_store = CitationAnchorStore()
+        self._citation_injector = CitationInjector(self._citation_store)
+        self._table_generator = BenchmarkTableGenerator(
+            benchmark_store=None,  # Set later when available
+            citation_store=self._citation_store,
+        )
+        # Lazy reference to benchmark_store (set by Harness during construction)
+        self._benchmark_store = None
+
         # Progress tracking (read by Harness for API responses)
         self.current_stage: str = ""
         self.current_message: str = ""
@@ -152,6 +168,8 @@ class PipelineOrchestrator:
         self._pending_revisions = []
         self.latex_repair_log = None
         self._evidence_store.clear()
+        self._citation_store.clear()
+        self._citation_anchor_store.clear()
         self.current_stage = ""
         self.current_message = ""
 
@@ -392,6 +410,14 @@ class PipelineOrchestrator:
 
         self._papers = papers[:self.config.max_papers]
         self._retrieved_queries = queries
+
+        # Phase 2: Register papers in CitationStore
+        for paper in self._papers:
+            try:
+                self._citation_store.register(paper)
+            except Exception as e:
+                logger.debug("Skipping citation registration for paper: %s", e)
+
         return self._papers
 
     def _analyze_papers(self, papers: list[dict]) -> str:
@@ -419,6 +445,13 @@ class PipelineOrchestrator:
             self._analysis = resp.text
             # Extract and verify claims from analysis
             self._extract_and_verify_claims(papers)
+            # Phase 2: Build CitationAnchorStore from verified claims
+            verified_claims = self._evidence_store.get_verified_claims()
+            if verified_claims:
+                self._citation_anchor_store.build(
+                    verified_claims,
+                    self._citation_store,
+                )
             return resp.text
 
         paper_summaries = []
@@ -454,6 +487,13 @@ class PipelineOrchestrator:
         self._analysis = resp.text
         # Extract and verify claims from analysis
         self._extract_and_verify_claims(papers)
+        # Phase 2: Build CitationAnchorStore from verified claims
+        verified_claims = self._evidence_store.get_verified_claims()
+        if verified_claims:
+            self._citation_anchor_store.build(
+                verified_claims,
+                self._citation_store,
+            )
         return resp.text
 
     def _write_survey(self, analysis: str, round_num: int) -> str:
@@ -485,7 +525,9 @@ class PipelineOrchestrator:
         writing_instruction = (
             "Write a comprehensive CVPR-format survey paper on the given topic. "
             "The paper MUST be substantive: each section should have 3-5 detailed paragraphs. "
-            "Use \\cite{ref} for citations. "
+            "Use [CITE:key] markers for citations (e.g., [CITE:qwen2024]). "
+            "NEVER write \\cite{} directly — the system will convert markers automatically. "
+            "Use [TABLE:benchmark_MMLU] for benchmark results (the system will insert the table). "
             "Structure: \\section{Abstract}, \\section{Introduction}, "
             "\\section{Background}, \\section{Taxonomy of Methods}, "
             "\\section{Comparative Analysis}, \\section{Future Directions}, "
@@ -527,7 +569,7 @@ class PipelineOrchestrator:
             "Bibliography does not count toward page limit.\n"
             "12. Use \\section* for the abstract heading if needed, but prefer "
             "the \\begin{abstract} environment.\n"
-            "13. All \\cite{} keys must use BibTeX-style keys (e.g., author2023title).\n"
+            "13. Use [CITE:key] markers for citations. NEVER write \\cite{} directly.\n"
             "### END CVPR FORMAT REQUIREMENTS ###\n"
         )
 
@@ -538,6 +580,9 @@ class PipelineOrchestrator:
         # Evidence context for factual grounding
         evidence_context = ClaimContextBuilder.build(self._evidence_store)
 
+        # Phase 2: Citation anchor context
+        citation_context = self._build_citation_context()
+
         user_msg = (
             f"Title: A Comprehensive Survey on {topic}\n"
             f"Keywords: {keywords}\n\n"
@@ -545,6 +590,7 @@ class PipelineOrchestrator:
             f"Paper Analysis:\n{analysis[:6000]}\n\n"
             f"References:\n{ref_text}\n\n"
             f"{evidence_context}\n\n"
+            f"{citation_context}\n\n"
             f"Round {round_num + 1} of up to {self.config.max_retries + 1}.\n\n"
             "IMPORTANT: Write the COMPLETE survey paper with all sections. "
             "Each section must have substantive technical content. "
@@ -553,7 +599,65 @@ class PipelineOrchestrator:
 
         resp = self._safe_llm_call(sys_prompt, user_msg)
         self._draft_sections = self._extract_sections(resp.text)
-        return resp.text
+
+        # Phase 2: Post-process — inject citations and generate tables
+        draft = self._post_process(resp.text)
+
+        return draft
+
+    def _build_citation_context(self) -> str:
+        """Build a citation key context for the writing prompt.
+
+        Lists available citation keys from the CitationStore so the LLM
+        can use them in [CITE:key] markers.
+        """
+        if self._citation_store.entry_count() == 0:
+            return ""
+
+        lines: list[str] = []
+        lines.append("=== Citation Context ===")
+        lines.append("Available citation keys (use [CITE:key] to reference):")
+
+        for entry in self._citation_store.get_all_entries():
+            model_info = ""
+            if entry.model_names:
+                model_info = f"  [models: {', '.join(entry.model_names[:3])}]"
+            lines.append(
+                f"  [CITE:{entry.citation_key}] — {entry.title[:80]}{model_info}"
+            )
+
+        # Add anchor info if available
+        anchors = self._citation_anchor_store.get_anchors()
+        if anchors:
+            lines.append("")
+            lines.append("Claim-to-citation mappings:")
+            for anchor in anchors[:10]:  # Limit to top 10
+                lines.append(
+                    f"  \"{anchor.claim_text[:60]}\" → [CITE:{anchor.citation_key}]"
+                )
+
+        lines.append("=== End Citation Context ===")
+        return "\n".join(lines)
+
+    def _post_process(self, draft: str) -> str:
+        """Run deterministic post-processing on the draft.
+
+        Steps:
+          1. Replace [CITE:key] markers with \\cite{key} (CitationInjector).
+          2. Replace [TABLE:...] markers with generated LaTeX tables.
+        """
+        if not draft:
+            return draft
+
+        # Step 1: Inject citations
+        draft = self._citation_injector.inject(draft)
+
+        # Step 2: Generate tables (requires benchmark_store from pipeline context)
+        if self._benchmark_store:
+            self._table_generator._benchmark_store = self._benchmark_store
+            draft = self._table_generator.replace_tables(draft)
+
+        return draft
 
     def _extract_and_verify_claims(self, papers: list[dict]) -> None:
         """Extract claims from analysis and verify them against paper sources.
