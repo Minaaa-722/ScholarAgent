@@ -7,6 +7,8 @@ evidence back to specific PDF pages, sections, and source types.
 import uuid
 from dataclasses import dataclass, field
 
+from agent.evidence.paper_types import EvidenceLevel
+
 
 @dataclass
 class EvidenceReference:
@@ -23,6 +25,7 @@ class EvidenceReference:
     source_type: str = ""  # "text", "table", "figure"
     table_id: str = ""
     excerpt: str = ""
+    evidence_level: EvidenceLevel = EvidenceLevel.NONE
 
     def __post_init__(self) -> None:
         """Auto-generate evidence_id if not provided."""

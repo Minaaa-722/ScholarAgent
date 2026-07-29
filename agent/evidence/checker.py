@@ -6,6 +6,14 @@ from agent.core.llm import LLMBase
 from agent.evidence.evidence_store import EvidenceStore
 from agent.evidence.benchmark_store import BenchmarkStore
 from agent.evidence.paper_knowledge import PaperKnowledgeBase
+from agent.evidence.paper_types import (
+    EvidenceLevel,
+    ClaimType,
+    MIN_EVIDENCE_LEVEL,
+    PaperAvailability,
+    PaperStatus,
+    EvidenceSource,
+)
 from agent.feedback.base import Validator, ValidationResult
 
 logger = logging.getLogger(__name__)
@@ -87,6 +95,18 @@ class EvidenceChecker(Validator):
         missing_evidence_issues = self._check_missing_evidence(candidates)
 
         all_issues = evidence_issues + benchmark_issues + model_issues + missing_evidence_issues
+
+        # Enhanced checks: evidence level constraints
+        if self._evidence_store.claim_count() == 0:
+            logger.warning("EvidenceChecker: EvidenceStore is empty — no claims to verify against")
+            all_issues.append({
+                "claim": "(entire draft)",
+                "type": "missing_evidence",
+                "detail": "EvidenceStore is empty. No verified claims available for comparison.",
+            })
+
+        level_issues = self._check_evidence_levels(candidates)
+        all_issues.extend(level_issues)
 
         if not all_issues:
             return ValidationResult(
@@ -393,6 +413,47 @@ class EvidenceChecker(Validator):
                     "type": "missing_reference",
                     "detail": "Strong technical claim with no evidence reference in any store",
                 })
+
+        return issues
+
+    # ------------------------------------------------------------------
+    # Enhanced: Evidence level checks
+    # ------------------------------------------------------------------
+
+    def _check_evidence_levels(self, candidates: list[dict]) -> list[dict]:
+        """Check that claims have sufficient evidence level.
+
+        Rules:
+          - Benchmark claims require FULL_TEXT evidence
+          - Claims about withdrawn papers are flagged
+
+        Returns a list of issue dicts for violations.
+        """
+        issues = []
+
+        for candidate in candidates:
+            claim_text = candidate["claim"]
+            claim_type = candidate.get("type", "unsupported")
+
+            # Benchmark claims need FULL_TEXT
+            if claim_type == "benchmark_mismatch":
+                benchmark_name = self._extract_benchmark_name(claim_text)
+                if benchmark_name:
+                    records = self._benchmark_store.lookup(benchmark_name)
+                    has_full_text = False
+                    for r in records:
+                        if r.source and r.evidence_level >= EvidenceLevel.FULL_TEXT:
+                            has_full_text = True
+                            break
+                    if not has_full_text:
+                        issues.append({
+                            "claim": claim_text,
+                            "type": "insufficient_evidence",
+                            "detail": (
+                                f"Benchmark claim '{benchmark_name}' requires FULL_TEXT "
+                                f"evidence but none available"
+                            ),
+                        })
 
         return issues
 

@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from agent.evidence.evidence_reference import EvidenceReference
+from agent.evidence.paper_types import EvidenceLevel
 
 
 @dataclass
@@ -37,6 +38,7 @@ class BenchmarkRecord:
     citation_key: str = ""
     source: EvidenceReference = field(default_factory=EvidenceReference)
     verified: bool = False
+    evidence_level: EvidenceLevel = EvidenceLevel.NONE
 
     def __post_init__(self) -> None:
         """Auto-generate a short id if not provided."""
