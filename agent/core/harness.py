@@ -263,9 +263,8 @@ class Harness:
         self._orchestrator._pending_expansions = []
         self._orchestrator._pending_revisions = []
         self._orchestrator.latex_repair_log = None
-        # Reset state machine if in terminal state (e.g. COMPLETE from previous run)
-        if self.state.is_terminal():
-            self.state = StateMachine()
+        # Always create a fresh state machine for a new run
+        self.state = StateMachine()
         self.state.transition_to(AgentState.PLANNING)
 
     def get_task_info(self) -> dict:

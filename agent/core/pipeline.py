@@ -114,6 +114,8 @@ class PipelineOrchestrator:
         self._paper_analyzer = PaperAnalyzer(self.llm)
         self._pdf_parser = PDFParser()
         self._evidence_extractor = EvidenceExtractor(self.llm)
+        from agent.evidence.citation_store import CitationStore
+        self._citation_store = CitationStore()
         self._pdf_chunks: dict[str, list[PDFChunk]] = {}
         self._evidence_refs: list[EvidenceReference] = []
         self._evidence_unavailable: set[str] = set()
@@ -179,6 +181,7 @@ class PipelineOrchestrator:
         self._evidence_store.clear()
         self._benchmark_store.clear()
         self._paper_knowledge_base.clear()
+        self._citation_store.clear()
         self._pdf_chunks.clear()
         self._evidence_refs.clear()
         self._evidence_unavailable.clear()
@@ -423,10 +426,22 @@ class PipelineOrchestrator:
         self._papers = papers[:self.config.max_papers]
         self._retrieved_queries = queries
 
+        # Register papers in CitationStore for citation resolution
+        import logging
+        _log = logging.getLogger(__name__)
+        for paper in self._papers:
+            try:
+                self._citation_store.register(paper)
+            except Exception as e:
+                _log.debug("Skipping citation registration: %s", e)
+
         # ---- PDF Download & Evidence Extraction ----
         self._pdf_chunks.clear()
         self._evidence_refs.clear()
         self._evidence_unavailable.clear()
+
+        import os
+        os.makedirs("output/pdfs", exist_ok=True)
 
         for paper in self._papers:
             arxiv_id = paper.get("arxiv_id", "")
@@ -435,7 +450,7 @@ class PipelineOrchestrator:
                 continue
 
             pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
-            save_path = f"/tmp/papers/{arxiv_id}.pdf"
+            save_path = f"output/pdfs/{arxiv_id}.pdf"
 
             try:
                 # Download PDF
