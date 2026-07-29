@@ -21,6 +21,13 @@ from agent.evidence.benchmark_store import BenchmarkRecord, BenchmarkStore
 from agent.evidence.paper_knowledge import ArchitectureKnowledge, TrainingKnowledge, PaperKnowledge, PaperKnowledgeBase
 from agent.evidence.benchmark_extractor import BenchmarkExtractor, BenchmarkVerifier
 from agent.evidence.paper_analyzer import PaperAnalyzer
+from agent.evidence.context_retriever import (
+    EvidenceRanker,
+    SimpleRanker,
+    EvidenceContext,
+    ContextRetriever,
+    EvidenceContextBuilder,
+)
 from agent.core.llm import MockLLM
 from agent.feedback.base import ValidationResult
 
@@ -1559,3 +1566,282 @@ class TestPaperAnalyzer:
         assert len(knowledge_list) == 1
         assert knowledge_list[0].paper_id == "p1"
         assert knowledge_list[0].title == "Test Paper"
+
+
+# =========================================================================
+# EvidenceRanker / SimpleRanker
+# =========================================================================
+
+class TestEvidenceRanker:
+    def test_evidence_ranker_simple(self):
+        """SimpleRanker sorts verified claims first, then by confidence."""
+        ranker = SimpleRanker()
+
+        # Claims — verified before unverified, higher confidence first
+        claims = [
+            Claim(claim="Low confidence unverified", category="architecture", confidence=0.3, verified=False),
+            Claim(claim="High confidence verified", category="architecture", confidence=0.9, verified=True),
+            Claim(claim="Low confidence verified", category="architecture", confidence=0.5, verified=True),
+            Claim(claim="High confidence unverified", category="architecture", confidence=0.8, verified=False),
+        ]
+        ranked = ranker.rank_claims(claims)
+        assert len(ranked) == 4
+        # Verified first
+        assert ranked[0].verified is True
+        assert ranked[1].verified is True
+        # Within verified, higher confidence first
+        assert ranked[0].confidence == 0.9
+        assert ranked[1].confidence == 0.5
+        # Unverified last
+        assert ranked[2].verified is False
+        assert ranked[3].verified is False
+        # Within unverified, higher confidence first
+        assert ranked[2].confidence == 0.8
+        assert ranked[3].confidence == 0.3
+
+        # Benchmarks — verified first
+        ref_p1 = EvidenceReference(paper_id="p1")
+        benchmarks = [
+            BenchmarkRecord(id="b1", model_name="M1", benchmark_name="B1", metric="acc", score="90", source=ref_p1, verified=False),
+            BenchmarkRecord(id="b2", model_name="M2", benchmark_name="B2", metric="acc", score="80", source=ref_p1, verified=True),
+        ]
+        ranked_b = ranker.rank_benchmarks(benchmarks)
+        assert len(ranked_b) == 2
+        assert ranked_b[0].verified is True
+        assert ranked_b[1].verified is False
+
+        # Knowledge — returned as-is
+        k1 = PaperKnowledge(paper_id="p1", title="Paper 1")
+        k2 = PaperKnowledge(paper_id="p2", title="Paper 2")
+        ranked_k = ranker.rank_knowledge([k1, k2])
+        assert ranked_k == [k1, k2]
+
+    def test_evidence_ranker_is_abc(self):
+        """EvidenceRanker cannot be instantiated directly."""
+        import inspect
+        assert inspect.isabstract(EvidenceRanker)
+        # Verify abstract methods exist
+        assert hasattr(EvidenceRanker, "rank_claims")
+        assert hasattr(EvidenceRanker, "rank_benchmarks")
+        assert hasattr(EvidenceRanker, "rank_knowledge")
+
+
+# =========================================================================
+# ContextRetriever
+# =========================================================================
+
+class TestContextRetriever:
+    def test_context_retriever_empty(self):
+        """No stores -> empty context."""
+        retriever = ContextRetriever(
+            evidence_store=EvidenceStore(),
+            benchmark_store=BenchmarkStore(),
+            knowledge_base=PaperKnowledgeBase(),
+        )
+        ctx = retriever.retrieve_for_section()
+        assert isinstance(ctx, EvidenceContext)
+        assert ctx.claims == []
+        assert ctx.benchmarks == []
+        assert ctx.paper_knowledge == []
+
+    def test_context_retriever_with_data(self):
+        """Retrieves from all three stores, ranks, and selects within budget."""
+        evidence_store = EvidenceStore()
+        evidence_store.add_claims([
+            Claim(claim="Uses dynamic resolution", category="architecture", paper_id="p1", confidence=0.9),
+            Claim(claim="MMLU score 85.3%", category="benchmark", paper_id="p1", confidence=0.8),
+        ])
+        evidence_store.mark_verified(["Uses dynamic resolution", "MMLU score 85.3%"])
+
+        benchmark_store = BenchmarkStore()
+        ref_p1 = EvidenceReference(paper_id="p1", excerpt="MMLU score 85.3%")
+        benchmark_store.add_records([
+            BenchmarkRecord(id="b1", model_name="Qwen2-VL", benchmark_name="MMLU", metric="accuracy", score="85.3", source=ref_p1, verified=True),
+        ])
+
+        knowledge_base = PaperKnowledgeBase()
+        pk = PaperKnowledge(
+            paper_id="p1",
+            title="Qwen2-VL: Better Vision-Language Model",
+            main_contribution="Dynamic resolution approach",
+        )
+        knowledge_base.add(pk)
+
+        retriever = ContextRetriever(
+            evidence_store=evidence_store,
+            benchmark_store=benchmark_store,
+            knowledge_base=knowledge_base,
+            max_context_tokens=1000,
+        )
+        ctx = retriever.retrieve_for_section()
+        assert len(ctx.claims) == 2
+        assert len(ctx.benchmarks) == 1
+        assert len(ctx.paper_knowledge) == 1
+        assert ctx.claims[0].claim == "Uses dynamic resolution"
+        assert ctx.benchmarks[0].benchmark_name == "MMLU"
+        assert ctx.paper_knowledge[0].paper_id == "p1"
+
+    def test_context_retriever_filters_by_paper_ids(self):
+        """Filters evidence by paper_ids."""
+        evidence_store = EvidenceStore()
+        evidence_store.add_claims([
+            Claim(claim="Claim from p1", category="architecture", paper_id="p1", confidence=0.9),
+            Claim(claim="Claim from p2", category="architecture", paper_id="p2", confidence=0.8),
+        ])
+
+        retriever = ContextRetriever(
+            evidence_store=evidence_store,
+            benchmark_store=BenchmarkStore(),
+            knowledge_base=PaperKnowledgeBase(),
+        )
+        ctx = retriever.retrieve_for_section(paper_ids=["p1"])
+        assert len(ctx.claims) == 1
+        assert ctx.claims[0].paper_id == "p1"
+
+    def test_context_retriever_filters_by_category(self):
+        """Filters claims by category."""
+        evidence_store = EvidenceStore()
+        evidence_store.add_claims([
+            Claim(claim="Arch claim", category="architecture", paper_id="p1", confidence=0.9),
+            Claim(claim="Bench claim", category="benchmark", paper_id="p1", confidence=0.8),
+        ])
+
+        retriever = ContextRetriever(
+            evidence_store=evidence_store,
+            benchmark_store=BenchmarkStore(),
+            knowledge_base=PaperKnowledgeBase(),
+        )
+        ctx = retriever.retrieve_for_section(category="architecture")
+        assert len(ctx.claims) == 1
+        assert ctx.claims[0].category == "architecture"
+
+    def test_context_retriever_token_budget(self):
+        """Token budget limits number of items returned."""
+        evidence_store = EvidenceStore()
+        for i in range(20):
+            evidence_store.add_claims([
+                Claim(
+                    claim=f"Long claim number {i} with some padding text to make it realistic and use more tokens",
+                    category="architecture",
+                    paper_id=f"p{i}",
+                    confidence=0.9,
+                ),
+            ])
+
+        # Very small budget — only a few items should fit
+        retriever = ContextRetriever(
+            evidence_store=evidence_store,
+            benchmark_store=BenchmarkStore(),
+            knowledge_base=PaperKnowledgeBase(),
+            max_context_tokens=50,  # ~200 characters
+        )
+        ctx = retriever.retrieve_for_section()
+        # Should not contain all 20 claims
+        assert len(ctx.claims) < 20
+        # Should contain at least 1
+        assert len(ctx.claims) >= 1
+
+    def test_context_retriever_custom_ranker(self):
+        """ContextRetriever accepts a custom ranker."""
+        evidence_store = EvidenceStore()
+        evidence_store.add_claims([
+            Claim(claim="Low confidence", category="architecture", paper_id="p1", confidence=0.3),
+            Claim(claim="High confidence", category="architecture", paper_id="p1", confidence=0.9),
+        ])
+
+        # Default SimpleRanker puts high confidence first
+        retriever = ContextRetriever(
+            evidence_store=evidence_store,
+            benchmark_store=BenchmarkStore(),
+            knowledge_base=PaperKnowledgeBase(),
+        )
+        ctx = retriever.retrieve_for_section()
+        assert ctx.claims[0].confidence == 0.9
+
+
+# =========================================================================
+# EvidenceContextBuilder
+# =========================================================================
+
+class TestEvidenceContextBuilder:
+    def test_evidence_context_builder_format(self):
+        """Formats context with metadata (paper_id, page_number, section)."""
+        ref = EvidenceReference(
+            paper_id="p1",
+            page_number=3,
+            section="Experiments",
+            excerpt="MMLU score 85.3%",
+        )
+        context = EvidenceContext(
+            claims=[
+                Claim(claim="Uses dynamic resolution", category="architecture", paper_id="p1", confidence=0.9, verified=True),
+            ],
+            benchmarks=[
+                BenchmarkRecord(
+                    id="b1",
+                    model_name="Qwen2-VL",
+                    benchmark_name="MMLU",
+                    metric="accuracy",
+                    score="85.3",
+                    source=ref,
+                    verified=True,
+                ),
+            ],
+            paper_knowledge=[
+                PaperKnowledge(
+                    paper_id="p1",
+                    title="Qwen2-VL: Better Vision-Language Model",
+                    main_contribution="Dynamic resolution approach",
+                ),
+            ],
+        )
+        result = EvidenceContextBuilder.format(context)
+
+        # Header and footer
+        assert "=== Evidence Context ===" in result
+        assert "=== End Evidence Context ===" in result
+
+        # Claims section with metadata
+        assert "--- Claims ---" in result
+        assert "paper=p1" in result
+        assert "architecture" in result
+        assert "verified" in result
+        assert "confidence=0.90" in result
+        assert "Uses dynamic resolution" in result
+
+        # Benchmark section with metadata
+        assert "--- Benchmark Results ---" in result
+        assert "page=3" in result
+        assert "section=Experiments" in result
+        assert "Qwen2-VL" in result
+        assert "MMLU" in result
+        assert "85.3%" in result
+
+        # Paper Knowledge section
+        assert "--- Paper Knowledge ---" in result
+        assert "Qwen2-VL: Better Vision-Language Model" in result
+        assert "Dynamic resolution approach" in result
+
+    def test_evidence_context_builder_format_empty(self):
+        """Empty context returns empty string."""
+        context = EvidenceContext()
+        result = EvidenceContextBuilder.format(context)
+        assert result == ""
+
+    def test_evidence_context_builder_format_source_excerpt(self):
+        """Source excerpt appears in formatted output."""
+        context = EvidenceContext(
+            claims=[
+                Claim(
+                    claim="Uses dynamic resolution",
+                    category="architecture",
+                    paper_id="p1",
+                    confidence=0.9,
+                    verified=True,
+                    source_excerpt="The model uses dynamic resolution to process images.",
+                ),
+            ],
+        )
+        result = EvidenceContextBuilder.format(context)
+        assert "Source:" in result
+        assert "dynamic resolution" in result

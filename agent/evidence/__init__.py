@@ -9,6 +9,13 @@ from agent.evidence.benchmark_store import BenchmarkRecord, BenchmarkStore
 from agent.evidence.paper_knowledge import ArchitectureKnowledge, TrainingKnowledge, PaperKnowledge, PaperKnowledgeBase
 from agent.evidence.benchmark_extractor import BenchmarkExtractor, BenchmarkVerifier
 from agent.evidence.paper_analyzer import PaperAnalyzer
+from agent.evidence.context_retriever import (
+    EvidenceRanker,
+    SimpleRanker,
+    EvidenceContext,
+    ContextRetriever,
+    EvidenceContextBuilder,
+)
 
 __all__ = [
     "Claim", "EvidenceStore", "ClaimContextBuilder",
@@ -22,4 +29,9 @@ __all__ = [
     "ArchitectureKnowledge", "TrainingKnowledge", "PaperKnowledge", "PaperKnowledgeBase",
     "BenchmarkExtractor", "BenchmarkVerifier",
     "PaperAnalyzer",
+    "EvidenceRanker",
+    "SimpleRanker",
+    "EvidenceContext",
+    "ContextRetriever",
+    "EvidenceContextBuilder",
 ]
