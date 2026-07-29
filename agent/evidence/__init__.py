@@ -7,6 +7,8 @@ from agent.evidence.pdf_parser import PDFChunk, PDFParser, ChunkFilter
 from agent.evidence.evidence_extractor import EvidenceReferenceValidator, EvidenceExtractor
 from agent.evidence.benchmark_store import BenchmarkRecord, BenchmarkStore
 from agent.evidence.paper_knowledge import ArchitectureKnowledge, TrainingKnowledge, PaperKnowledge, PaperKnowledgeBase
+from agent.evidence.benchmark_extractor import BenchmarkExtractor, BenchmarkVerifier
+from agent.evidence.paper_analyzer import PaperAnalyzer
 
 __all__ = [
     "Claim", "EvidenceStore", "ClaimContextBuilder",
@@ -18,4 +20,6 @@ __all__ = [
     "EvidenceReferenceValidator", "EvidenceExtractor",
     "BenchmarkRecord", "BenchmarkStore",
     "ArchitectureKnowledge", "TrainingKnowledge", "PaperKnowledge", "PaperKnowledgeBase",
+    "BenchmarkExtractor", "BenchmarkVerifier",
+    "PaperAnalyzer",
 ]

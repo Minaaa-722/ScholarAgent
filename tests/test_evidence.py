@@ -19,6 +19,8 @@ from agent.evidence.pdf_parser import PDFChunk, ChunkFilter
 from agent.evidence.evidence_extractor import EvidenceReferenceValidator, EvidenceExtractor
 from agent.evidence.benchmark_store import BenchmarkRecord, BenchmarkStore
 from agent.evidence.paper_knowledge import ArchitectureKnowledge, TrainingKnowledge, PaperKnowledge, PaperKnowledgeBase
+from agent.evidence.benchmark_extractor import BenchmarkExtractor, BenchmarkVerifier
+from agent.evidence.paper_analyzer import PaperAnalyzer
 from agent.core.llm import MockLLM
 from agent.feedback.base import ValidationResult
 
@@ -1159,3 +1161,401 @@ class TestPaperKnowledgeBase:
         retrieved = base.get("p1")
         assert retrieved.title == "Updated"
         assert len(base.get_all()) == 1
+
+
+# =========================================================================
+# BenchmarkExtractor
+# =========================================================================
+
+class TestBenchmarkExtractor:
+    def test_benchmark_extractor_extracts(self):
+        """MockLLM returns structured benchmark records."""
+        ref = EvidenceReference(
+            paper_id="paper123",
+            excerpt="Qwen2-VL achieves 85.3% accuracy on MMLU under zero-shot setting.",
+            page_number=3,
+            section="Experiments",
+            source_type="text",
+        )
+        response_json = json.dumps([
+            {
+                "excerpt_index": 0,
+                "model_name": "Qwen2-VL",
+                "benchmark_name": "MMLU",
+                "metric": "accuracy",
+                "score": "85.3",
+                "score_unit": "%",
+                "split": "zero-shot",
+            },
+        ])
+        llm = MockLLM(fixed_response=response_json)
+        extractor = BenchmarkExtractor(llm)
+        records = extractor.extract([ref])
+        assert len(records) == 1
+        assert records[0].model_name == "Qwen2-VL"
+        assert records[0].benchmark_name == "MMLU"
+        assert records[0].metric == "accuracy"
+        assert records[0].score == "85.3"
+        assert records[0].score_unit == "%"
+        assert records[0].split == "zero-shot"
+        assert records[0].source.paper_id == "paper123"
+        assert records[0].verified is False
+
+    def test_benchmark_extractor_empty_refs(self):
+        """Empty evidence_refs returns empty list."""
+        llm = MockLLM()
+        extractor = BenchmarkExtractor(llm)
+        records = extractor.extract([])
+        assert records == []
+
+    def test_benchmark_extractor_invalid_json(self):
+        """Invalid JSON response returns empty list."""
+        llm = MockLLM(fixed_response="NOT JSON")
+        extractor = BenchmarkExtractor(llm)
+        ref = EvidenceReference(paper_id="p1", excerpt="Some excerpt")
+        records = extractor.extract([ref])
+        assert records == []
+
+    def test_benchmark_extractor_llm_failure(self):
+        """LLM failure returns empty list gracefully."""
+        class FailingLLM:
+            def generate(self, system_prompt, user_message, tools=None):
+                raise RuntimeError("API error")
+        extractor = BenchmarkExtractor(FailingLLM())  # type: ignore
+        ref = EvidenceReference(paper_id="p1", excerpt="Some excerpt")
+        records = extractor.extract([ref])
+        assert records == []
+
+    def test_benchmark_extractor_markdown_fenced(self):
+        """Handles markdown-fenced JSON response."""
+        ref = EvidenceReference(
+            paper_id="paper123",
+            excerpt="Model X achieves 92.1% on MathVista.",
+        )
+        response = "```json\n" + json.dumps([
+            {
+                "excerpt_index": 0,
+                "model_name": "Model X",
+                "benchmark_name": "MathVista",
+                "metric": "accuracy",
+                "score": "92.1",
+                "score_unit": "%",
+                "split": "",
+            },
+        ]) + "\n```"
+        llm = MockLLM(fixed_response=response)
+        extractor = BenchmarkExtractor(llm)
+        records = extractor.extract([ref])
+        assert len(records) == 1
+        assert records[0].benchmark_name == "MathVista"
+        assert records[0].score == "92.1"
+
+    def test_benchmark_extractor_no_benchmarks_in_response(self):
+        """Empty JSON array when no benchmarks found."""
+        llm = MockLLM(fixed_response="[]")
+        extractor = BenchmarkExtractor(llm)
+        ref = EvidenceReference(paper_id="p1", excerpt="This paper introduces a new architecture.")
+        records = extractor.extract([ref])
+        assert records == []
+
+    def test_benchmark_extractor_out_of_range_index(self):
+        """excerpt_index out of range is skipped."""
+        response_json = json.dumps([
+            {
+                "excerpt_index": 99,
+                "model_name": "Model",
+                "benchmark_name": "MMLU",
+                "metric": "acc",
+                "score": "90",
+            },
+        ])
+        llm = MockLLM(fixed_response=response_json)
+        extractor = BenchmarkExtractor(llm)
+        ref = EvidenceReference(paper_id="p1", excerpt="MMLU score 90%")
+        records = extractor.extract([ref])
+        assert records == []
+
+
+# =========================================================================
+# BenchmarkVerifier
+# =========================================================================
+
+class TestBenchmarkVerifier:
+    def test_benchmark_verifier(self):
+        """Verifies records against paper metadata."""
+        ref = EvidenceReference(
+            paper_id="paper123",
+            excerpt="Qwen2-VL achieves 85.3% accuracy on MMLU.",
+        )
+        record = BenchmarkRecord(
+            id="r1",
+            model_name="Qwen2-VL",
+            benchmark_name="MMLU",
+            metric="accuracy",
+            score="85.3",
+            source=ref,
+        )
+        verifier = BenchmarkVerifier()
+        papers = [
+            {"title": "Qwen2-VL: Better Vision-Language Model", "paper_id": "paper123", "arxiv_id": "paper123"},
+        ]
+        passed = verifier.verify([record], papers)
+        assert len(passed) == 1
+        assert passed[0] == "r1"
+
+    def test_benchmark_verifier_verification_lifecycle(self):
+        """Unverified -> verified transition."""
+        ref = EvidenceReference(
+            paper_id="p1",
+            excerpt="Model A achieves 90.0% on Benchmark B.",
+        )
+        store = BenchmarkStore()
+        record = BenchmarkRecord(
+            id="r1",
+            model_name="Model A",
+            benchmark_name="Benchmark B",
+            metric="accuracy",
+            score="90.0",
+            source=ref,
+        )
+        store.add_records([record])
+        assert record.verified is False
+
+        verifier = BenchmarkVerifier()
+        papers = [{"title": "Model A Paper", "paper_id": "p1", "abstract": "Model A achieves 90.0% on Benchmark B."}]
+        passed = verifier.verify([record], papers)
+        assert len(passed) == 1
+
+        # The record is still unverified in the store until mark_verified is called
+        assert record.verified is False
+        store.mark_verified(passed)
+        assert store.get_verified()[0].id == "r1"
+        assert store.verified_count() == 1
+
+    def test_benchmark_verifier_rejects_inconsistent(self):
+        """Rejects record where score not in excerpt."""
+        ref = EvidenceReference(
+            paper_id="p1",
+            excerpt="Model A achieves great performance on Benchmark B.",
+        )
+        record = BenchmarkRecord(
+            id="r1",
+            model_name="Model A",
+            benchmark_name="Benchmark B",
+            metric="accuracy",
+            score="90.0",
+            source=ref,
+        )
+        verifier = BenchmarkVerifier()
+        passed = verifier.verify([record], [])
+        assert len(passed) == 0
+
+    def test_benchmark_verifier_rejects_empty_excerpt(self):
+        """Rejects record with empty excerpt."""
+        ref = EvidenceReference(paper_id="p1", excerpt="")
+        record = BenchmarkRecord(
+            id="r1",
+            model_name="Model A",
+            benchmark_name="MMLU",
+            metric="acc",
+            score="90",
+            source=ref,
+        )
+        verifier = BenchmarkVerifier()
+        passed = verifier.verify([record], [])
+        assert len(passed) == 0
+
+    def test_benchmark_verifier_verify_record(self):
+        """verify_record checks a single record."""
+        ref = EvidenceReference(
+            paper_id="p1",
+            excerpt="Model X achieves 88.5% on MMLU.",
+        )
+        record = BenchmarkRecord(
+            model_name="Model X",
+            benchmark_name="MMLU",
+            metric="accuracy",
+            score="88.5",
+            source=ref,
+        )
+        verifier = BenchmarkVerifier()
+        assert verifier.verify_record(record) is True
+        assert verifier.verify_record(record, {"title": "Model X Paper", "paper_id": "p1", "abstract": "Model X achieves 88.5% on MMLU."}) is True
+
+    def test_benchmark_verifier_rejects_implausible_score(self):
+        """Rejects record with implausible score."""
+        ref = EvidenceReference(paper_id="p1", excerpt="Model X achieves 150.0% on MMLU.")
+        record = BenchmarkRecord(
+            model_name="Model X",
+            benchmark_name="MMLU",
+            metric="accuracy",
+            score="150.0",
+            source=ref,
+        )
+        verifier = BenchmarkVerifier()
+        assert verifier.verify_record(record) is False
+
+    def test_benchmark_verifier_empty_records(self):
+        """Empty records list returns empty list."""
+        verifier = BenchmarkVerifier()
+        passed = verifier.verify([], [])
+        assert passed == []
+
+
+# =========================================================================
+# PaperAnalyzer
+# =========================================================================
+
+class TestPaperAnalyzer:
+    def test_paper_analyzer_analyzes(self):
+        """MockLLM returns structured paper knowledge."""
+        ref1 = EvidenceReference(
+            paper_id="paper123",
+            excerpt="Qwen2-VL uses a ViT-L/14 vision encoder with a Qwen2-7B language model.",
+            page_number=2,
+            section="Architecture",
+            source_type="text",
+        )
+        ref2 = EvidenceReference(
+            paper_id="paper123",
+            excerpt="The model is pretrained on LAION-5B and achieves 85.3% on MMLU.",
+            page_number=5,
+            section="Experiments",
+            source_type="text",
+        )
+        response_json = json.dumps({
+            "paper123": {
+                "title": "Qwen2-VL: Better Vision-Language Model",
+                "problem_definition": "Vision-language model alignment",
+                "motivation": "Improve multimodal understanding",
+                "main_contribution": "Dynamic resolution approach",
+                "architecture": {
+                    "vision_encoder": "ViT-L/14",
+                    "language_model": "Qwen2-7B",
+                    "connector": "MLP projector",
+                    "fusion_method": "",
+                    "resolution_strategy": "dynamic resolution",
+                },
+                "training": {
+                    "pretraining_dataset": "LAION-5B",
+                    "instruction_dataset": "",
+                    "optimization_method": "AdamW",
+                    "loss_function": "",
+                    "training_stage": "",
+                },
+                "datasets": ["ImageNet-1K"],
+                "benchmark_references": ["MMLU"],
+                "limitations": "Limited to English",
+                "evidence_indices": [0, 1],
+            },
+        })
+        llm = MockLLM(fixed_response=response_json)
+        analyzer = PaperAnalyzer(llm)
+        knowledge_list = analyzer.analyze([ref1, ref2])
+        assert len(knowledge_list) == 1
+        pk = knowledge_list[0]
+        assert pk.paper_id == "paper123"
+        assert pk.title == "Qwen2-VL: Better Vision-Language Model"
+        assert pk.problem_definition == "Vision-language model alignment"
+        assert pk.motivation == "Improve multimodal understanding"
+        assert pk.main_contribution == "Dynamic resolution approach"
+        assert pk.architecture is not None
+        assert pk.architecture.vision_encoder.value == "ViT-L/14"
+        assert pk.architecture.language_model.value == "Qwen2-7B"
+        assert pk.architecture.connector.value == "MLP projector"
+        assert pk.architecture.resolution_strategy.value == "dynamic resolution"
+        assert pk.training is not None
+        assert pk.training.pretraining_dataset.value == "LAION-5B"
+        assert pk.training.optimization_method.value == "AdamW"
+        assert len(pk.datasets) == 1
+        assert pk.datasets[0].name == "ImageNet-1K"
+        assert pk.benchmark_references == ["MMLU"]
+        assert pk.limitations == "Limited to English"
+        assert len(pk.evidence_refs) == 2
+
+    def test_paper_analyzer_empty_refs(self):
+        """Empty evidence_refs returns empty list."""
+        llm = MockLLM()
+        analyzer = PaperAnalyzer(llm)
+        knowledge_list = analyzer.analyze([])
+        assert knowledge_list == []
+
+    def test_paper_analyzer_invalid_json(self):
+        """Invalid JSON response returns empty list."""
+        llm = MockLLM(fixed_response="NOT JSON")
+        analyzer = PaperAnalyzer(llm)
+        ref = EvidenceReference(paper_id="p1", excerpt="Some excerpt")
+        knowledge_list = analyzer.analyze([ref])
+        assert knowledge_list == []
+
+    def test_paper_analyzer_llm_failure(self):
+        """LLM failure returns empty list gracefully."""
+        class FailingLLM:
+            def generate(self, system_prompt, user_message, tools=None):
+                raise RuntimeError("API error")
+        analyzer = PaperAnalyzer(FailingLLM())  # type: ignore
+        ref = EvidenceReference(paper_id="p1", excerpt="Some excerpt")
+        knowledge_list = analyzer.analyze([ref])
+        assert knowledge_list == []
+
+    def test_paper_analyzer_multiple_papers(self):
+        """Handles multiple papers in response."""
+        response_json = json.dumps({
+            "p1": {
+                "title": "Paper 1",
+                "problem_definition": "",
+                "motivation": "",
+                "main_contribution": "",
+                "architecture": None,
+                "training": None,
+                "datasets": [],
+                "benchmark_references": [],
+                "limitations": "",
+                "evidence_indices": [0],
+            },
+            "p2": {
+                "title": "Paper 2",
+                "problem_definition": "",
+                "motivation": "",
+                "main_contribution": "",
+                "architecture": None,
+                "training": None,
+                "datasets": [],
+                "benchmark_references": [],
+                "limitations": "",
+                "evidence_indices": [1],
+            },
+        })
+        llm = MockLLM(fixed_response=response_json)
+        analyzer = PaperAnalyzer(llm)
+        refs = [
+            EvidenceReference(paper_id="p1", excerpt="Paper 1 excerpt"),
+            EvidenceReference(paper_id="p2", excerpt="Paper 2 excerpt"),
+        ]
+        knowledge_list = analyzer.analyze(refs)
+        assert len(knowledge_list) == 2
+        assert {k.paper_id for k in knowledge_list} == {"p1", "p2"}
+
+    def test_paper_analyzer_markdown_fenced(self):
+        """Handles markdown-fenced JSON response."""
+        response = "```json\n" + json.dumps({
+            "p1": {
+                "title": "Test Paper",
+                "problem_definition": "",
+                "motivation": "",
+                "main_contribution": "",
+                "architecture": None,
+                "training": None,
+                "datasets": [],
+                "benchmark_references": [],
+                "limitations": "",
+                "evidence_indices": [0],
+            },
+        }) + "\n```"
+        llm = MockLLM(fixed_response=response)
+        analyzer = PaperAnalyzer(llm)
+        ref = EvidenceReference(paper_id="p1", excerpt="Test excerpt")
+        knowledge_list = analyzer.analyze([ref])
+        assert len(knowledge_list) == 1
+        assert knowledge_list[0].paper_id == "p1"
+        assert knowledge_list[0].title == "Test Paper"
