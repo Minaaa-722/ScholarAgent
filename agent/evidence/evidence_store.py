@@ -19,6 +19,7 @@ class Claim:
     paper_id: str = ""
     confidence: float = 0.0
     verified: bool = False
+    citation_key: str = ""
     source_excerpt: str = ""
 
     VALID_CATEGORIES = frozenset({"architecture", "dataset", "benchmark", "comparison"})

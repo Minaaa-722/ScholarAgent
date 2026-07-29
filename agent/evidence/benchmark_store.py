@@ -34,6 +34,7 @@ class BenchmarkRecord:
     score: str = ""
     score_unit: str = "%"
     split: str = ""
+    citation_key: str = ""
     source: EvidenceReference = field(default_factory=EvidenceReference)
     verified: bool = False
 
