@@ -5,6 +5,8 @@ class AgentState(Enum):
     IDLE = auto()
     PLANNING = auto()
     RETRIEVAL = auto()
+    PAPER_VALIDATING = auto()
+    EVIDENCE_ACQUIRING = auto()
     ANALYSIS = auto()
     WRITING = auto()
     VALIDATION = auto()
@@ -18,18 +20,23 @@ class AgentState(Enum):
 _TRANSITIONS = {
     AgentState.IDLE: {AgentState.PLANNING, AgentState.ERROR},
     AgentState.PLANNING: {AgentState.RETRIEVAL, AgentState.FEEDBACK, AgentState.ERROR, AgentState.INTERRUPTED},
-    AgentState.RETRIEVAL: {AgentState.ANALYSIS, AgentState.FEEDBACK, AgentState.ERROR, AgentState.INTERRUPTED},
+    AgentState.RETRIEVAL: {AgentState.PAPER_VALIDATING, AgentState.FEEDBACK, AgentState.ERROR, AgentState.INTERRUPTED},
+    AgentState.PAPER_VALIDATING: {AgentState.EVIDENCE_ACQUIRING, AgentState.ANALYSIS, AgentState.FEEDBACK, AgentState.ERROR, AgentState.INTERRUPTED},
+    AgentState.EVIDENCE_ACQUIRING: {AgentState.ANALYSIS, AgentState.FEEDBACK, AgentState.ERROR, AgentState.INTERRUPTED},
     AgentState.ANALYSIS: {AgentState.WRITING, AgentState.FEEDBACK, AgentState.ERROR, AgentState.INTERRUPTED},
     AgentState.WRITING: {AgentState.VALIDATION, AgentState.FEEDBACK, AgentState.ERROR, AgentState.INTERRUPTED},
     AgentState.VALIDATION: {AgentState.WRITING, AgentState.COMPLETE, AgentState.ERROR, AgentState.INTERRUPTED},
     AgentState.FEEDBACK: {AgentState.WRITING, AgentState.RETRIEVAL, AgentState.ANALYSIS, AgentState.ERROR, AgentState.INTERRUPTED},
-    AgentState.INTERRUPTED: {AgentState.PLANNING, AgentState.RETRIEVAL, AgentState.ANALYSIS,
+    AgentState.INTERRUPTED: {AgentState.PLANNING, AgentState.RETRIEVAL, AgentState.PAPER_VALIDATING, AgentState.EVIDENCE_ACQUIRING,
+                             AgentState.ANALYSIS,
                              AgentState.WRITING, AgentState.VALIDATION, AgentState.COMPLETE, AgentState.ERROR},
     AgentState.COMPLETE: set(),
     AgentState.ERROR: {
         AgentState.IDLE,
         AgentState.PLANNING,
         AgentState.RETRIEVAL,
+        AgentState.PAPER_VALIDATING,
+        AgentState.EVIDENCE_ACQUIRING,
         AgentState.ANALYSIS,
         AgentState.WRITING,
         AgentState.VALIDATION,

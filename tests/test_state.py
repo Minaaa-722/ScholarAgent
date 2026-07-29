@@ -24,6 +24,8 @@ def test_state_machine_full_cycle():
     expected = [
         AgentState.PLANNING,
         AgentState.RETRIEVAL,
+        AgentState.PAPER_VALIDATING,
+        AgentState.EVIDENCE_ACQUIRING,
         AgentState.ANALYSIS,
         AgentState.WRITING,
         AgentState.VALIDATION,
@@ -46,7 +48,8 @@ def test_state_machine_can_interrupt():
 
 def test_state_machine_is_terminal():
     sm = StateMachine()
-    for s in [AgentState.PLANNING, AgentState.RETRIEVAL, AgentState.ANALYSIS,
+    for s in [AgentState.PLANNING, AgentState.RETRIEVAL, AgentState.PAPER_VALIDATING,
+              AgentState.EVIDENCE_ACQUIRING, AgentState.ANALYSIS,
               AgentState.WRITING, AgentState.VALIDATION, AgentState.COMPLETE]:
         sm.transition_to(s)
     assert sm.is_terminal() is True

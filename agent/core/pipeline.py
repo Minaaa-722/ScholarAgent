@@ -19,6 +19,15 @@ from agent.evidence.pdf_parser import PDFParser, PDFChunk
 from agent.evidence.evidence_extractor import EvidenceExtractor
 from agent.evidence.evidence_reference import EvidenceReference
 from agent.evidence.context_retriever import ContextRetriever, EvidenceContextBuilder
+from agent.evidence.paper_types import (
+    EvidenceLevel,
+    ClaimType,
+    PaperAvailability,
+    EvidenceSource,
+    MIN_EVIDENCE_LEVEL,
+)
+from agent.evidence.paper_validator import PaperAvailabilityValidator
+from agent.evidence.evidence_acquisition import EvidenceAcquisitionRouter
 from agent.feedback.base import ValidationResult, Validator
 from agent.guardrails.manager import GuardrailManager
 from agent.tools.registry import ToolRegistry
@@ -127,6 +136,10 @@ class PipelineOrchestrator:
         self._pdf_chunks: dict[str, list[PDFChunk]] = {}
         self._evidence_refs: list[EvidenceReference] = []
         self._evidence_unavailable: set[str] = set()
+        self._paper_validations: list[PaperAvailability] = []
+        self._evidence_sources: list[EvidenceSource] = []
+        self._paper_validator = PaperAvailabilityValidator()
+        self._evidence_acquisition = EvidenceAcquisitionRouter()
 
         # Progress tracking (read by Harness for API responses)
         self.current_stage: str = ""
@@ -193,6 +206,8 @@ class PipelineOrchestrator:
         self._pdf_chunks.clear()
         self._evidence_refs.clear()
         self._evidence_unavailable.clear()
+        self._paper_validations.clear()
+        self._evidence_sources.clear()
         self.current_stage = ""
         self.current_message = ""
 
@@ -225,23 +240,48 @@ class PipelineOrchestrator:
             return PipelineResult(status="interrupted", execution_log=self.execution_log)
         self._check_human_feedback(on_progress)
 
-        # ---- Stage 2: RETRIEVAL ----
+        # ---- Stage 2: RETRIEVAL (metadata only) ----
         self._progress(on_progress, "retrieval", "Searching arXiv and Semantic Scholar?")
         papers = self._retry_on_error(
             lambda: self._retrieve_papers(), AgentState.RETRIEVAL, on_progress)
         # Apply guardrail: filter papers
         papers = self._guardrails.filter_papers(papers)
         self._log("RETRIEVAL", {"paper_count": len(papers)})
+        self._safe_transition(AgentState.PAPER_VALIDATING)
+        if self._check_interrupted():
+            return PipelineResult(status="interrupted", execution_log=self.execution_log)
+        self._check_human_feedback(on_progress)
+
+        # ---- Stage 3: PAPER_VALIDATION ----
+        self._progress(on_progress, "paper_validation", "Validating paper availability?")
+        paper_validations = self._retry_on_error(
+            lambda: self._validate_papers(papers), AgentState.PAPER_VALIDATING, on_progress)
+        self._log_paper_validation(paper_validations)
+        self._safe_transition(AgentState.EVIDENCE_ACQUIRING)
+        if self._check_interrupted():
+            return PipelineResult(status="interrupted", execution_log=self.execution_log)
+        self._check_human_feedback(on_progress)
+
+        # ---- Stage 4: EVIDENCE_ACQUISITION ----
+        self._progress(on_progress, "evidence_acquisition", "Acquiring evidence from papers?")
+        evidence_sources = self._retry_on_error(
+            lambda: self._acquire_evidence(papers, paper_validations),
+            AgentState.EVIDENCE_ACQUIRING, on_progress)
+        self._log_evidence_acquisition(evidence_sources)
         self._safe_transition(AgentState.ANALYSIS)
         if self._check_interrupted():
             return PipelineResult(status="interrupted", execution_log=self.execution_log)
         self._check_human_feedback(on_progress)
 
-        # ---- Stage 3: ANALYSIS ----
+        # ---- Stage 5: ANALYSIS ----
         self._progress(on_progress, "analysis", "Analyzing retrieved papers?")
         analysis = self._retry_on_error(
             lambda: self._analyze_papers(papers), AgentState.ANALYSIS, on_progress)
         self._log("ANALYSIS", {"analysis_summary": (analysis or "")[:300]})
+
+        # ---- Pre-writing evidence gate ----
+        self._apply_evidence_gate()
+
         self._safe_transition(AgentState.WRITING)
         if self._check_interrupted():
             return PipelineResult(status="interrupted", execution_log=self.execution_log)
@@ -297,6 +337,8 @@ class PipelineOrchestrator:
             if report["overall_passed"]:
                 self._safe_transition(AgentState.COMPLETE)
                 self._progress(on_progress, "complete", "All quality checks passed!")
+                # Compute evidence coverage metrics
+                self._compute_evidence_coverage()
                 result = self._build_result(final_draft, "complete", rounds)
                 # Save validation scores
                 result.validation_scores = dict(self._validation_scores)
@@ -435,72 +477,143 @@ class PipelineOrchestrator:
         self._retrieved_queries = queries
 
         # Register papers in CitationStore for citation resolution
-        import logging
-        _log = logging.getLogger(__name__)
         for paper in self._papers:
             try:
                 self._citation_store.register(paper)
             except Exception as e:
-                _log.debug("Skipping citation registration: %s", e)
+                logger.debug("Skipping citation registration: %s", e)
 
-        # ---- PDF Download & Evidence Extraction ----
-        self._pdf_chunks.clear()
-        self._evidence_refs.clear()
+        # Note: PDF download and evidence extraction moved to
+        # _validate_papers() and _acquire_evidence() stages.
+        return self._papers
+
+    def _validate_papers(self, papers: list[dict]) -> list[PaperAvailability]:
+        """Validate paper availability.
+
+        Runs PaperAvailabilityValidator on each paper to check arXiv status,
+        PDF URL validity, and abstract availability. Does NOT download PDFs.
+
+        Args:
+            papers: List of paper metadata dicts.
+
+        Returns:
+            List of PaperAvailability objects.
+        """
+        if not papers:
+            return []
+
+        availabilities = self._paper_validator.validate_many(papers)
+
+        # Track which papers have evidence available
         self._evidence_unavailable.clear()
+        for pa in availabilities:
+            if pa.evidence_level < EvidenceLevel.ABSTRACT:
+                self._evidence_unavailable.add(pa.paper_id)
+
+        self._paper_validations = availabilities
+        return availabilities
+
+    def _log_paper_validation(self, availabilities: list[PaperAvailability]) -> None:
+        """Log paper validation summary."""
+        status_counts: dict[str, int] = {}
+        for pa in availabilities:
+            s = pa.status.value
+            status_counts[s] = status_counts.get(s, 0) + 1
+
+        self._log("PAPER_VALIDATION", {
+            "total_papers": len(availabilities),
+            "status_distribution": status_counts,
+            "withdrawn": sum(1 for pa in availabilities if pa.status.value == "WITHDRAWN"),
+            "pdf_available": sum(1 for pa in availabilities if pa.status.value == "PDF_AVAILABLE"),
+            "abstract_only": sum(
+                1 for pa in availabilities
+                if pa.status.value == "AVAILABLE" and pa.evidence_level == EvidenceLevel.ABSTRACT
+            ),
+        })
+
+    def _acquire_evidence(
+        self,
+        papers: list[dict],
+        availabilities: list[PaperAvailability],
+    ) -> list[EvidenceSource]:
+        """Acquire evidence for all papers.
+
+        Runs EvidenceAcquisitionRouter to try PDF first, then fall back
+        to abstract, then metadata. Never blocks on PDF failure.
+
+        Args:
+            papers: List of paper metadata dicts.
+            availabilities: List of PaperAvailability objects.
+
+        Returns:
+            List of EvidenceSource objects.
+        """
+        if not papers or not availabilities:
+            return []
 
         import os
         os.makedirs("output/pdfs", exist_ok=True)
 
-        for paper in self._papers:
-            arxiv_id = paper.get("arxiv_id", "")
-            paper_id = paper.get("paper_id", arxiv_id)
-            if not arxiv_id:
-                continue
+        # Acquire evidence via router
+        sources = self._evidence_acquisition.acquire_many(papers, availabilities)
 
-            pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
-            save_path = f"output/pdfs/{arxiv_id}.pdf"
+        # For PDF sources, parse into chunks and extract evidence refs
+        self._pdf_chunks.clear()
+        self._evidence_refs.clear()
 
-            try:
-                # Download PDF
-                pdf_tool = self.tools.get("pdf_download")
-                if pdf_tool:
-                    dl_res = pdf_tool.execute({"url": pdf_url, "save_path": save_path})
-                    if not dl_res.success:
-                        logger.warning("PDF download failed for %s (%s): %s", paper_id, pdf_url, dl_res.error)
-                        self._evidence_unavailable.add(paper_id)
-                        continue
-                else:
-                    # No PDF download tool available -- skip
-                    continue
+        for i, source in enumerate(sources):
+            if source.source_type == "PDF":
+                paper_id = source.paper_id
+                paper = papers[i] if i < len(papers) else {}
 
-                # Parse into chunks
-                chunks = self._pdf_parser.parse(paper_id, save_path)
-                if not chunks:
-                    logger.warning("PDF parsing returned no chunks for %s", paper_id)
-                    self._evidence_unavailable.add(paper_id)
-                    continue
+                # Save PDF content to disk for parsing
+                arxiv_id = paper.get("arxiv_id", "")
+                if arxiv_id:
+                    save_path = f"output/pdfs/{arxiv_id}.pdf"
+                    try:
+                        with open(save_path, "wb") as f:
+                            pdf_bytes = source.content.encode("utf-8", errors="replace") if isinstance(source.content, str) else source.content
+                            f.write(pdf_bytes if isinstance(pdf_bytes, bytes) else str(pdf_bytes).encode("utf-8"))
 
-                self._pdf_chunks[paper_id] = chunks
+                        # Parse into chunks
+                        chunks = self._pdf_parser.parse(paper_id, save_path)
+                        if chunks:
+                            self._pdf_chunks[paper_id] = chunks
 
-                # Extract evidence references
-                refs = self._evidence_extractor.extract(chunks)
-                if refs:
-                    self._evidence_refs.extend(refs)
-                    logger.info("Evidence: %d refs extracted from %s", len(refs), paper_id)
-                else:
-                    logger.info("Evidence: no refs extracted from %s", paper_id)
+                            # Extract evidence references
+                            refs = self._evidence_extractor.extract(chunks)
+                            if refs:
+                                self._evidence_refs.extend(refs)
+                                logger.info("Evidence: %d refs extracted from %s", len(refs), paper_id)
+                        else:
+                            logger.warning("PDF parsing returned no chunks for %s", paper_id)
+                    except Exception as e:
+                        logger.warning("PDF processing failed for %s: %s", paper_id, e)
 
-            except Exception as e:
-                logger.warning("Evidence extraction failed for paper %s: %s", paper_id, e)
-                self._evidence_unavailable.add(paper_id)
-
+        self._evidence_sources = sources
         logger.info(
-            "Evidence: %d papers with evidence, %d unavailable, %d total refs",
-            len(self._pdf_chunks),
-            len(self._evidence_unavailable),
-            len(self._evidence_refs),
+            "Evidence: %d sources acquired, %d PDF parsed, %d refs",
+            len(sources), len(self._pdf_chunks), len(self._evidence_refs),
         )
-        return self._papers
+        return sources
+
+    def _log_evidence_acquisition(self, sources: list[EvidenceSource]) -> None:
+        """Log evidence acquisition summary."""
+        source_counts: dict[str, int] = {}
+        for s in sources:
+            st = s.source_type or "NONE"
+            source_counts[st] = source_counts.get(st, 0) + 1
+
+        level_counts: dict[str, int] = {}
+        for s in sources:
+            lv = s.evidence_level.name
+            level_counts[lv] = level_counts.get(lv, 0) + 1
+
+        self._log("EVIDENCE_ACQUISITION", {
+            "total_papers": len(sources),
+            "source_distribution": source_counts,
+            "evidence_level_distribution": level_counts,
+        })
 
     def _analyze_papers(self, papers: list[dict]) -> str:
         """Use LLM to analyze the retrieved papers."""
@@ -597,6 +710,113 @@ class PipelineOrchestrator:
         except Exception as e:
             logger.warning("Evidence benchmark/knowledge extraction failed: %s", e)
 
+    # ------------------------------------------------------------------
+    # Pre-writing evidence gate
+    # ------------------------------------------------------------------
+
+    def _apply_evidence_gate(self) -> None:
+        """Filter claims by evidence level before writing.
+
+        Removes claims whose evidence level is below the minimum required
+        for their ClaimType. This ensures the writing agent never sees
+        unsupported claims.
+
+        Rules:
+          - PAPER_DESCRIPTION: requires ABSTRACT
+          - ARCHITECTURE: requires HTML (FULL_TEXT preferred)
+          - TRAINING_DETAIL: requires FULL_TEXT
+          - BENCHMARK_RESULT: requires FULL_TEXT
+          - LIMITATION: requires ABSTRACT
+
+        Claims that fail the gate are logged but not removed from the store
+        (they remain available for metadata tracking).
+        """
+        before = self._evidence_store.claim_count()
+        if before == 0:
+            logger.info("Evidence gate: no claims to filter")
+            return
+
+        all_claims = self._evidence_store.get_all_claims()
+        kept = []
+        removed = []
+
+        for claim in all_claims:
+            min_level = MIN_EVIDENCE_LEVEL.get(claim.claim_type, EvidenceLevel.ABSTRACT)
+            if claim.evidence_level >= min_level:
+                kept.append(claim)
+            else:
+                removed.append(claim)
+                logger.debug(
+                    "Evidence gate: removed claim '%s' (type=%s, level=%s, min=%s)",
+                    claim.claim[:60], claim.claim_type.value,
+                    claim.evidence_level.name, min_level.name,
+                )
+
+        if removed:
+            # Rebuild store with only kept claims
+            self._evidence_store.clear()
+            self._evidence_store.add_claims(kept)
+            logger.info(
+                "Evidence gate: %d claims kept, %d removed (insufficient evidence level)",
+                len(kept), len(removed),
+            )
+        else:
+            logger.info("Evidence gate: all %d claims pass minimum level check", before)
+
+    # ------------------------------------------------------------------
+    # Evidence coverage metrics
+    # ------------------------------------------------------------------
+
+    def _compute_evidence_coverage(self) -> dict:
+        """Compute evidence coverage metrics after writing.
+
+        Returns:
+            Dict with:
+              - total_claims: total factual claims in evidence store
+              - grounded_claims: claims with FULL_TEXT or HTML evidence
+              - coverage: grounded_claims / total_claims ratio
+              - benchmark_claims: total benchmark claims
+              - verified_benchmark_claims: benchmark claims with FULL_TEXT evidence
+              - benchmark_coverage: verified / total benchmark ratio
+        """
+        all_claims = self._evidence_store.get_all_claims()
+        total_claims = len(all_claims)
+
+        # Grounded claims = FULL_TEXT or HTML evidence level
+        grounded = [c for c in all_claims if c.evidence_level >= EvidenceLevel.HTML]
+        grounded_count = len(grounded)
+
+        coverage = grounded_count / total_claims if total_claims > 0 else 0.0
+
+        # Benchmark claims specifically
+        benchmark_claims = [c for c in all_claims if c.claim_type == ClaimType.BENCHMARK_RESULT]
+        total_benchmark = len(benchmark_claims)
+        verified_benchmark = [
+            c for c in benchmark_claims
+            if c.evidence_level >= EvidenceLevel.FULL_TEXT
+        ]
+        verified_benchmark_count = len(verified_benchmark)
+        benchmark_coverage = verified_benchmark_count / total_benchmark if total_benchmark > 0 else 0.0
+
+        report = {
+            "total_claims": total_claims,
+            "grounded_claims": grounded_count,
+            "coverage": round(coverage, 3),
+            "benchmark_claims": total_benchmark,
+            "verified_benchmark_claims": verified_benchmark_count,
+            "benchmark_coverage": round(benchmark_coverage, 3),
+        }
+
+        logger.info(
+            "[EVIDENCE_REPORT] total_claims=%d grounded_claims=%d coverage=%.1f%% "
+            "benchmark_claims=%d verified_benchmark_claims=%d benchmark_coverage=%.1f%%",
+            total_claims, grounded_count, coverage * 100,
+            total_benchmark, verified_benchmark_count, benchmark_coverage * 100,
+        )
+
+        self._log("EVIDENCE_REPORT", report)
+        return report
+
     def _write_survey(self, analysis: str, round_num: int) -> str:
         """Use LLM to write the survey paper in CVPR format."""
         topic = self._task.topic
@@ -632,7 +852,21 @@ class PipelineOrchestrator:
             "Structure: \\section{Abstract}, \\section{Introduction}, "
             "\\section{Background}, \\section{Taxonomy of Methods}, "
             "\\section{Comparative Analysis}, \\section{Future Directions}, "
-            "\\section{Conclusion}."
+            "\\section{Conclusion}.\n\n"
+            "### EVIDENCE CONSTRAINTS ###\n"
+            "You may ONLY generate factual claims supported by the Evidence Context below.\n"
+            "Evidence level determines what you can claim:\n"
+            "  - ABSTRACT evidence: paper descriptions only (topic, motivation, problem definition)\n"
+            "  - FULL_TEXT evidence: architecture details, training details, benchmark numbers\n"
+            "  - METADATA evidence: bibliography only (title, year, authors) — NOT for survey statements\n"
+            "Rules:\n"
+            "  - Do NOT add numbers, datasets, performance comparisons, or architecture details "
+            "unless present in the evidence context.\n"
+            "  - If evidence is insufficient, write a narrower statement or omit the claim.\n"
+            "  - Benchmark values require FULL_TEXT evidence — do not generate benchmark numbers "
+            "from general knowledge.\n"
+            "  - Prefer incomplete survey over unsupported facts.\n"
+            "### END EVIDENCE CONSTRAINTS ###\n"
         )
 
         cvpr_format_instructions = (
