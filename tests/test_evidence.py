@@ -14,6 +14,9 @@ from agent.evidence.evidence_store import Claim, EvidenceStore, ClaimContextBuil
 from agent.evidence.claim_extractor import ClaimExtractor
 from agent.evidence.verifier import ClaimVerifier
 from agent.evidence.checker import EvidenceChecker
+from agent.evidence.evidence_reference import EvidenceReference, KnowledgeField, DatasetReference
+from agent.evidence.pdf_parser import PDFChunk, ChunkFilter
+from agent.evidence.evidence_extractor import EvidenceReferenceValidator, EvidenceExtractor
 from agent.core.llm import MockLLM
 from agent.feedback.base import ValidationResult
 
@@ -486,3 +489,374 @@ class TestPipelineEvidenceIntegration:
         last_user_msg = llm.conversation_history[-1][1]
         assert "Evidence Context" in last_user_msg
         assert "Uses dynamic resolution" in last_user_msg
+
+
+# =========================================================================
+# EvidenceReference
+# =========================================================================
+
+class TestEvidenceReference:
+    def test_evidence_reference(self):
+        """EvidenceReference creation with all fields."""
+        ref = EvidenceReference(
+            paper_id="paper123",
+            page_number=5,
+            section="Introduction",
+            source_type="text",
+            excerpt="This paper uses a novel transformer architecture.",
+        )
+        assert ref.paper_id == "paper123"
+        assert ref.page_number == 5
+        assert ref.section == "Introduction"
+        assert ref.source_type == "text"
+        assert ref.excerpt == "This paper uses a novel transformer architecture."
+        # Auto-generated evidence_id
+        assert len(ref.evidence_id) == 12
+        assert isinstance(ref.evidence_id, str)
+
+    def test_evidence_reference_defaults(self):
+        """EvidenceReference with minimal fields."""
+        ref = EvidenceReference(paper_id="p1")
+        assert ref.page_number == -1
+        assert ref.section == ""
+        assert ref.source_type == ""
+        assert ref.excerpt == ""
+        assert len(ref.evidence_id) == 12
+
+    def test_evidence_reference_explicit_id(self):
+        """EvidenceReference with explicit evidence_id keeps it."""
+        ref = EvidenceReference(
+            evidence_id="custom1234567",
+            paper_id="p1",
+            excerpt="test",
+        )
+        assert ref.evidence_id == "custom1234567"
+
+
+class TestEvidenceReferenceValidator:
+    def test_evidence_reference_validator(self):
+        """Validates excerpt against source chunk."""
+        chunks = [
+            PDFChunk(
+                paper_id="p1",
+                chunk_id="p1_p1",
+                page_number=1,
+                section="Introduction",
+                content="This paper uses a novel transformer architecture.",
+            ),
+        ]
+        ref = EvidenceReference(
+            paper_id="p1",
+            page_number=1,
+            section="Introduction",
+            source_type="text",
+            excerpt="novel transformer architecture",
+        )
+        validator = EvidenceReferenceValidator()
+        assert validator.validate(ref, chunks) is True
+
+    def test_evidence_reference_validator_rejects_fabricated(self):
+        """Rejects excerpt not in source."""
+        chunks = [
+            PDFChunk(
+                paper_id="p1",
+                chunk_id="p1_p1",
+                page_number=1,
+                content="This paper uses a novel transformer architecture.",
+            ),
+        ]
+        ref = EvidenceReference(
+            paper_id="p1",
+            page_number=1,
+            excerpt="This claim is completely fabricated",
+        )
+        validator = EvidenceReferenceValidator()
+        assert validator.validate(ref, chunks) is False
+
+    def test_validator_rejects_empty_excerpt(self):
+        """Rejects empty excerpt."""
+        chunks = [PDFChunk(paper_id="p1", chunk_id="p1_p1", page_number=1, content="Some text.")]
+        ref = EvidenceReference(paper_id="p1", excerpt="")
+        validator = EvidenceReferenceValidator()
+        assert validator.validate(ref, chunks) is False
+
+    def test_validator_invalid_page_number(self):
+        """Rejects page number not present in chunks."""
+        chunks = [
+            PDFChunk(paper_id="p1", chunk_id="p1_p1", page_number=1, content="Content here."),
+        ]
+        ref = EvidenceReference(
+            paper_id="p1",
+            page_number=99,
+            excerpt="Content here",
+        )
+        validator = EvidenceReferenceValidator()
+        assert validator.validate(ref, chunks) is False
+
+    def test_validator_unknown_page_number(self):
+        """Accepts page_number=-1 for unknown pages."""
+        chunks = [
+            PDFChunk(paper_id="p1", chunk_id="p1_p1", page_number=1, content="Content here."),
+        ]
+        ref = EvidenceReference(
+            paper_id="p1",
+            page_number=-1,
+            excerpt="Content here",
+        )
+        validator = EvidenceReferenceValidator()
+        assert validator.validate(ref, chunks) is True
+
+    def test_validator_table_needs_table_id(self):
+        """Table source type requires non-empty table_id."""
+        chunks = [
+            PDFChunk(paper_id="p1", chunk_id="p1_p1", page_number=1, content="Table data."),
+        ]
+        ref = EvidenceReference(
+            paper_id="p1",
+            page_number=1,
+            source_type="table",
+            table_id="",
+            excerpt="Table data",
+        )
+        validator = EvidenceReferenceValidator()
+        assert validator.validate(ref, chunks) is False
+
+    def test_validator_table_with_table_id(self):
+        """Table source type with valid table_id passes."""
+        chunks = [
+            PDFChunk(paper_id="p1", chunk_id="p1_p1", page_number=1, content="Table 1 data."),
+        ]
+        ref = EvidenceReference(
+            paper_id="p1",
+            page_number=1,
+            source_type="table",
+            table_id="Table 1",
+            excerpt="Table 1 data",
+        )
+        validator = EvidenceReferenceValidator()
+        assert validator.validate(ref, chunks) is True
+
+    def test_validate_all(self):
+        """validate_all returns only valid refs."""
+        chunks = [
+            PDFChunk(paper_id="p1", chunk_id="p1_p1", page_number=1, content="Real content here."),
+        ]
+        valid_ref = EvidenceReference(paper_id="p1", page_number=1, excerpt="Real content here")
+        invalid_ref = EvidenceReference(paper_id="p1", page_number=1, excerpt="Fake content")
+        validator = EvidenceReferenceValidator()
+        result = validator.validate_all([valid_ref, invalid_ref], chunks)
+        assert len(result) == 1
+        assert result[0] == valid_ref
+
+
+class TestKnowledgeField:
+    def test_knowledge_field(self):
+        """KnowledgeField with evidence_refs."""
+        ref = EvidenceReference(paper_id="p1", excerpt="Evidence excerpt")
+        field = KnowledgeField(
+            value="transformer architecture",
+            evidence_refs=[ref],
+        )
+        assert field.value == "transformer architecture"
+        assert len(field.evidence_refs) == 1
+        assert field.evidence_refs[0].excerpt == "Evidence excerpt"
+
+    def test_knowledge_field_defaults(self):
+        """KnowledgeField with default values."""
+        field = KnowledgeField()
+        assert field.value == ""
+        assert field.evidence_refs == []
+
+
+class TestDatasetReference:
+    def test_dataset_reference(self):
+        """DatasetReference creation."""
+        ref = EvidenceReference(paper_id="p1", excerpt="Dataset info")
+        ds = DatasetReference(
+            name="ImageNet-1K",
+            evidence_refs=[ref],
+        )
+        assert ds.name == "ImageNet-1K"
+        assert len(ds.evidence_refs) == 1
+        assert ds.evidence_refs[0].excerpt == "Dataset info"
+
+
+# =========================================================================
+# PDFChunk
+# =========================================================================
+
+class TestPDFChunk:
+    def test_pdf_chunk(self):
+        """PDFChunk creation."""
+        chunk = PDFChunk(
+            paper_id="paper123",
+            chunk_id="paper123_p1",
+            page_number=1,
+            section="Introduction",
+            content="Content of the first page.",
+        )
+        assert chunk.paper_id == "paper123"
+        assert chunk.chunk_id == "paper123_p1"
+        assert chunk.page_number == 1
+        assert chunk.section == "Introduction"
+        assert chunk.content == "Content of the first page."
+
+    def test_pdf_chunk_defaults(self):
+        """PDFChunk with default section and content."""
+        chunk = PDFChunk(
+            paper_id="p1",
+            chunk_id="p1_p1",
+            page_number=1,
+        )
+        assert chunk.section == ""
+        assert chunk.content == ""
+
+
+# =========================================================================
+# ChunkFilter
+# =========================================================================
+
+class TestChunkFilter:
+    def test_chunk_filter(self):
+        """ChunkFilter filters by category keywords."""
+        chunks = [
+            PDFChunk(paper_id="p1", chunk_id="p1_p1", page_number=1, content="The transformer architecture uses attention."),
+            PDFChunk(paper_id="p1", chunk_id="p1_p2", page_number=2, content="The dataset contains 1M images."),
+            PDFChunk(paper_id="p1", chunk_id="p1_p3", page_number=3, content="Future work includes addressing this limitation."),
+        ]
+        cf = ChunkFilter()
+        arch_chunks = cf.filter(chunks, "architecture")
+        assert len(arch_chunks) == 1
+        assert arch_chunks[0].chunk_id == "p1_p1"
+
+        dataset_chunks = cf.filter(chunks, "dataset")
+        assert len(dataset_chunks) == 1
+        assert dataset_chunks[0].chunk_id == "p1_p2"
+
+        limitation_chunks = cf.filter(chunks, "limitation")
+        assert len(limitation_chunks) == 1
+        assert limitation_chunks[0].chunk_id == "p1_p3"
+
+    def test_chunk_filter_unknown_category(self):
+        """Unknown category returns empty list."""
+        chunks = [PDFChunk(paper_id="p1", chunk_id="p1_p1", page_number=1, content="Some content.")]
+        cf = ChunkFilter()
+        result = cf.filter(chunks, "unknown_category")
+        assert result == []
+
+    def test_chunk_filter_empty_chunks(self):
+        """Empty chunks list returns empty list."""
+        cf = ChunkFilter()
+        result = cf.filter([], "architecture")
+        assert result == []
+
+    def test_chunk_filter_case_insensitive(self):
+        """Keyword matching is case-insensitive."""
+        chunks = [
+            PDFChunk(paper_id="p1", chunk_id="p1_p1", page_number=1, content="TRANSFORMER based model"),
+        ]
+        cf = ChunkFilter()
+        result = cf.filter(chunks, "architecture")
+        assert len(result) == 1
+
+
+# =========================================================================
+# EvidenceExtractor
+# =========================================================================
+
+class TestEvidenceExtractor:
+    def test_evidence_extractor_empty(self):
+        """No chunks returns empty evidence."""
+        llm = MockLLM()
+        extractor = EvidenceExtractor(llm)
+        refs = extractor.extract([])
+        assert refs == []
+
+    def test_evidence_extractor_extracts(self):
+        """MockLLM returns structured evidence."""
+        response_json = json.dumps([
+            {
+                "excerpt": "The transformer architecture uses attention",
+                "category": "architecture",
+                "page_number": 1,
+                "section": "Introduction",
+                "source_type": "text",
+                "table_id": "",
+            },
+        ])
+        llm = MockLLM(fixed_response=response_json)
+        extractor = EvidenceExtractor(llm)
+        chunks = [
+            PDFChunk(paper_id="paper123", chunk_id="paper123_p1", page_number=1, content="The transformer architecture uses attention"),
+        ]
+        refs = extractor.extract(chunks)
+        assert len(refs) == 1
+        assert refs[0].paper_id == "paper123"
+        assert refs[0].excerpt == "The transformer architecture uses attention"
+        assert refs[0].page_number == 1
+        assert refs[0].section == "Introduction"
+        assert refs[0].source_type == "text"
+        assert len(refs[0].evidence_id) == 12
+
+    def test_evidence_extractor_filters_fabricated(self):
+        """Evidence not found in source chunks is filtered out."""
+        response_json = json.dumps([
+            {
+                "excerpt": "This claim is completely fabricated",
+                "category": "architecture",
+                "page_number": 1,
+                "section": "Introduction",
+                "source_type": "text",
+                "table_id": "",
+            },
+        ])
+        llm = MockLLM(fixed_response=response_json)
+        extractor = EvidenceExtractor(llm)
+        chunks = [
+            PDFChunk(paper_id="paper123", chunk_id="paper123_p1", page_number=1, content="Real content only"),
+        ]
+        refs = extractor.extract(chunks)
+        assert len(refs) == 0
+
+    def test_evidence_extractor_invalid_json(self):
+        """Invalid JSON response returns empty list."""
+        llm = MockLLM(fixed_response="NOT JSON")
+        extractor = EvidenceExtractor(llm)
+        chunks = [
+            PDFChunk(paper_id="p1", chunk_id="p1_p1", page_number=1, content="Some content."),
+        ]
+        refs = extractor.extract(chunks)
+        assert refs == []
+
+    def test_evidence_extractor_llm_failure(self):
+        """LLM failure returns empty list gracefully."""
+        class FailingLLM:
+            def generate(self, system_prompt, user_message, tools=None):
+                raise RuntimeError("API error")
+        extractor = EvidenceExtractor(FailingLLM())  # type: ignore
+        chunks = [
+            PDFChunk(paper_id="p1", chunk_id="p1_p1", page_number=1, content="Some content."),
+        ]
+        refs = extractor.extract(chunks)
+        assert refs == []
+
+    def test_evidence_extractor_markdown_fenced(self):
+        """Handles markdown-fenced JSON response."""
+        response = "```json\n" + json.dumps([
+            {
+                "excerpt": "The transformer architecture uses attention",
+                "category": "architecture",
+                "page_number": 1,
+                "section": "Introduction",
+                "source_type": "text",
+                "table_id": "",
+            },
+        ]) + "\n```"
+        llm = MockLLM(fixed_response=response)
+        extractor = EvidenceExtractor(llm)
+        chunks = [
+            PDFChunk(paper_id="paper123", chunk_id="paper123_p1", page_number=1, content="The transformer architecture uses attention"),
+        ]
+        refs = extractor.extract(chunks)
+        assert len(refs) == 1
+        assert refs[0].excerpt == "The transformer architecture uses attention"
