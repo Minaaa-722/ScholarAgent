@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from agent.evidence.paper_types import ClaimType, EvidenceLevel, MIN_EVIDENCE_LEVEL
+
 
 @dataclass
 class Claim:
@@ -9,6 +11,8 @@ class Claim:
     Attributes:
         claim: The technical claim text (e.g., "Qwen2-VL uses dynamic resolution").
         category: One of "architecture", "dataset", "benchmark", "comparison".
+        claim_type: ClaimType enum for evidence-level enforcement.
+        evidence_level: EvidenceLevel of the source this claim came from.
         paper_id: Paper identifier (e.g., "qwen2024").
         confidence: 0.0–1.0 confidence in the extraction.
         verified: Whether this claim has been cross-checked against paper source.
@@ -16,6 +20,8 @@ class Claim:
     """
     claim: str
     category: str = "architecture"
+    claim_type: ClaimType = ClaimType.PAPER_DESCRIPTION
+    evidence_level: EvidenceLevel = EvidenceLevel.NONE
     paper_id: str = ""
     confidence: float = 0.0
     verified: bool = False
@@ -95,6 +101,17 @@ class EvidenceStore:
     def get_claims_for_paper(self, paper_id: str) -> list[Claim]:
         """Get claims linked to a specific paper."""
         return [c for c in self._claims if c.paper_id == paper_id]
+
+    def get_claims_above_level(self, min_level: EvidenceLevel) -> list[Claim]:
+        """Get claims whose evidence level meets or exceeds the minimum.
+
+        Args:
+            min_level: The minimum EvidenceLevel required.
+
+        Returns:
+            List of claims with evidence_level >= min_level.
+        """
+        return [c for c in self._claims if c.evidence_level >= min_level]
 
     def claim_count(self) -> int:
         """Total number of claims in the store."""

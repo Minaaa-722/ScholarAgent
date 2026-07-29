@@ -20,6 +20,14 @@ from agent.evidence.citation_store import CitationEntry, CitationStore
 from agent.evidence.citation_anchor_store import CitationAnchor, CitationAnchorStore
 from agent.evidence.citation_injector import CitationInjector
 from agent.evidence.table_generator import BenchmarkTableGenerator
+from agent.evidence.paper_types import (
+    PaperStatus,
+    EvidenceLevel,
+    ClaimType,
+    PaperAvailability,
+    EvidenceSource,
+    MIN_EVIDENCE_LEVEL,
+)
 
 __all__ = [
     "Claim", "EvidenceStore", "ClaimContextBuilder",
@@ -42,4 +50,6 @@ __all__ = [
     "CitationAnchor", "CitationAnchorStore",
     "CitationInjector",
     "BenchmarkTableGenerator",
+    "PaperStatus", "EvidenceLevel", "ClaimType",
+    "PaperAvailability", "EvidenceSource", "MIN_EVIDENCE_LEVEL",
 ]

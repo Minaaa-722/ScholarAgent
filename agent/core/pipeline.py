@@ -116,6 +116,14 @@ class PipelineOrchestrator:
         self._evidence_extractor = EvidenceExtractor(self.llm)
         from agent.evidence.citation_store import CitationStore
         self._citation_store = CitationStore()
+        from agent.evidence.citation_anchor_store import CitationAnchorStore
+        self._citation_anchor_store = CitationAnchorStore()
+        from agent.evidence.citation_injector import CitationInjector
+        self._citation_injector = CitationInjector(self._citation_store)
+        from agent.evidence.table_generator import BenchmarkTableGenerator
+        self._table_generator = BenchmarkTableGenerator(
+            self._benchmark_store, self._citation_store
+        )
         self._pdf_chunks: dict[str, list[PDFChunk]] = {}
         self._evidence_refs: list[EvidenceReference] = []
         self._evidence_unavailable: set[str] = set()
@@ -753,8 +761,9 @@ class PipelineOrchestrator:
 
         # Step 2: Generate tables (requires benchmark_store from pipeline context)
         if self._benchmark_store:
-            self._table_generator._benchmark_store = self._benchmark_store
-            draft = self._table_generator.replace_tables(draft)
+            draft = self._table_generator.replace_tables(
+                draft, knowledge_base=self._paper_knowledge_base
+            )
 
         return draft
 
