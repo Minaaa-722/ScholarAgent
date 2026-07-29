@@ -16,6 +16,10 @@ from agent.evidence.context_retriever import (
     ContextRetriever,
     EvidenceContextBuilder,
 )
+from agent.evidence.citation_store import CitationEntry, CitationStore
+from agent.evidence.citation_anchor_store import CitationAnchor, CitationAnchorStore
+from agent.evidence.citation_injector import CitationInjector
+from agent.evidence.table_generator import BenchmarkTableGenerator
 
 __all__ = [
     "Claim", "EvidenceStore", "ClaimContextBuilder",
@@ -34,4 +38,8 @@ __all__ = [
     "EvidenceContext",
     "ContextRetriever",
     "EvidenceContextBuilder",
+    "CitationEntry", "CitationStore",
+    "CitationAnchor", "CitationAnchorStore",
+    "CitationInjector",
+    "BenchmarkTableGenerator",
 ]

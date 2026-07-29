@@ -2001,3 +2001,699 @@ class TestEvidenceContextBuilder:
         result = EvidenceContextBuilder.format(context)
         assert "Source:" in result
         assert "dynamic resolution" in result
+
+
+# =========================================================================
+# CitationStore (Phase 2)
+# =========================================================================
+
+class TestCitationEntry:
+    def test_citation_entry_creation(self):
+        entry = CitationEntry(
+            citation_key="wang2024qwen2",
+            paper_id="qwen2024",
+            bibtex_entry="@article{wang2024qwen2,\n  author = {Wang and others},\n  title = {Qwen2-VL},\n  year = {2024},\n}",
+            title="Qwen2-VL: Better Vision-Language Model",
+            authors=["Wang", "Zhang"],
+            year=2024,
+            venue="NeurIPS",
+            model_names=["Qwen2-VL"],
+        )
+        assert entry.citation_key == "wang2024qwen2"
+        assert entry.paper_id == "qwen2024"
+        assert entry.title == "Qwen2-VL: Better Vision-Language Model"
+        assert entry.venue == "NeurIPS"
+        assert entry.model_names == ["Qwen2-VL"]
+
+    def test_citation_entry_defaults(self):
+        entry = CitationEntry(
+            citation_key="key2024test",
+            paper_id="p1",
+            bibtex_entry="@misc{key2024test,\n  author = {Unknown},\n  title = {Test},\n  year = {2024},\n}",
+            title="Test",
+        )
+        assert entry.authors == []
+        assert entry.year == 0
+        assert entry.venue == ""
+        assert entry.model_names == []
+
+
+class TestCitationStore:
+    def test_register_and_lookup(self):
+        store = CitationStore()
+        paper = {
+            "title": "Qwen2-VL: Better Vision-Language Model",
+            "authors": ["Wang", "Zhang"],
+            "year": 2024,
+            "arxiv_id": "2403.12345",
+        }
+        key = store.register(paper)
+        assert key is not None
+        assert key.startswith("wang2024")
+
+        # Lookup by key
+        entry = store.lookup_by_key(key)
+        assert entry is not None
+        assert entry.title == "Qwen2-VL: Better Vision-Language Model"
+        assert entry.year == 2024
+
+        # Lookup by paper_id
+        entry2 = store.lookup_by_paper_id("2403.12345")
+        assert entry2 is not None
+        assert entry2.citation_key == key
+
+    def test_register_invalid_paper(self):
+        store = CitationStore()
+        with pytest.raises(ValueError, match="title"):
+            store.register({"authors": ["A"], "year": 2024})
+        with pytest.raises(ValueError, match="authors"):
+            store.register({"title": "T", "year": 2024})
+        with pytest.raises(ValueError, match="year"):
+            store.register({"title": "T", "authors": ["A"]})
+
+    def test_lookup_by_nonexistent_key(self):
+        store = CitationStore()
+        assert store.lookup_by_key("nonexistent") is None
+        assert store.lookup_by_paper_id("nonexistent") is None
+
+    def test_lookup_by_model(self):
+        store = CitationStore()
+        paper = {
+            "title": "Qwen2-VL: Better Vision-Language Model",
+            "authors": ["Wang", "Zhang"],
+            "year": 2024,
+            "arxiv_id": "2403.12345",
+        }
+        store.register(paper, model_names=["Qwen2-VL"])
+
+        entries = store.lookup_by_model("Qwen2-VL")
+        assert len(entries) == 1
+        assert entries[0].citation_key.startswith("wang2024")
+
+        # Case insensitive
+        entries2 = store.lookup_by_model("qwen2-vl")
+        assert len(entries2) == 1
+
+        # Nonexistent model
+        assert store.lookup_by_model("Nonexistent") == []
+
+    def test_model_alias_from_title(self):
+        """Model name extracted from title prefix."""
+        store = CitationStore()
+        paper = {
+            "title": "Qwen2-VL: Better Vision-Language Model",
+            "authors": ["Wang"],
+            "year": 2024,
+            "arxiv_id": "2403.12345",
+        }
+        store.register(paper)
+        entries = store.lookup_by_model("Qwen2-VL")
+        assert len(entries) == 1
+
+    def test_citation_key_collision(self):
+        """Collision handling appends a/b/c suffix."""
+        store = CitationStore()
+        paper = {
+            "title": "Dynamic Resolution in Vision Models",
+            "authors": ["Wang", "Zhang"],
+            "year": 2024,
+            "arxiv_id": "2403.11111",
+        }
+        key1 = store.register(paper)
+        # Same author, year, keyword → collision
+        paper2 = {
+            "title": "Dynamic Resolution for Video Understanding",
+            "authors": ["Wang", "Li"],
+            "year": 2024,
+            "arxiv_id": "2403.22222",
+        }
+        key2 = store.register(paper2)
+        assert key1 != key2
+        assert key2.endswith("a")
+
+        paper3 = {
+            "title": "Dynamic Resolution in Multi-Modal Learning",
+            "authors": ["Wang", "Zhao"],
+            "year": 2024,
+            "arxiv_id": "2403.33333",
+        }
+        key3 = store.register(paper3)
+        assert key3.endswith("b")
+
+    def test_get_all_keys(self):
+        store = CitationStore()
+        assert store.get_all_keys() == []
+        paper = {"title": "Test Paper", "authors": ["Author"], "year": 2024, "arxiv_id": "2403.1"}
+        k1 = store.register(paper)
+        paper2 = {"title": "Another Paper", "authors": ["Writer"], "year": 2023, "arxiv_id": "2303.1"}
+        k2 = store.register(paper2)
+        keys = store.get_all_keys()
+        assert len(keys) == 2
+        assert k1 in keys
+        assert k2 in keys
+
+    def test_get_all_entries(self):
+        store = CitationStore()
+        assert store.get_all_entries() == []
+        paper = {"title": "Test Paper", "authors": ["Author"], "year": 2024, "arxiv_id": "2403.1"}
+        store.register(paper)
+        assert len(store.get_all_entries()) == 1
+
+    def test_entry_count(self):
+        store = CitationStore()
+        assert store.entry_count() == 0
+        paper = {"title": "Test Paper", "authors": ["Author"], "year": 2024, "arxiv_id": "2403.1"}
+        store.register(paper)
+        assert store.entry_count() == 1
+
+    def test_clear(self):
+        store = CitationStore()
+        paper = {"title": "Test Paper", "authors": ["Author"], "year": 2024, "arxiv_id": "2403.1"}
+        store.register(paper)
+        assert store.entry_count() == 1
+        store.clear()
+        assert store.entry_count() == 0
+
+    def test_generate_references_bib(self):
+        store = CitationStore()
+        # Empty store → empty string
+        assert store.generate_references_bib() == ""
+
+        paper = {
+            "title": "Qwen2-VL: Better Vision-Language Model",
+            "authors": ["Wang", "Zhang"],
+            "year": 2024,
+            "arxiv_id": "2403.12345",
+        }
+        store.register(paper)
+        bib = store.generate_references_bib()
+        assert "@article" in bib or "@misc" in bib
+        assert "wang2024" in bib
+        assert bib.endswith("\n")
+
+    def test_generate_references_bib_sorted(self):
+        store = CitationStore()
+        store.register({"title": "Z Paper", "authors": ["Zed"], "year": 2024, "arxiv_id": "2403.1"})
+        store.register({"title": "A Paper", "authors": ["Alpha"], "year": 2023, "arxiv_id": "2303.1"})
+        bib = store.generate_references_bib()
+        # The sorted order can be checked by the fact that "alpha2023a" sorts before "zed2024z"
+        alpha_idx = bib.find("alpha2023a")
+        zed_idx = bib.find("zed2024z")
+        assert alpha_idx >= 0 and zed_idx >= 0
+        assert alpha_idx < zed_idx
+
+    def test_key_generation_with_arxiv(self):
+        """arXiv papers get @misc with eprint field."""
+        store = CitationStore()
+        paper = {
+            "title": "Test Model: A Novel Approach",
+            "authors": ["Researcher"],
+            "year": 2024,
+            "arxiv_id": "2403.99999",
+        }
+        key = store.register(paper)
+        entry = store.lookup_by_key(key)
+        assert "@misc" in entry.bibtex_entry
+        assert "2403.99999" in entry.bibtex_entry
+
+    def test_key_generation_with_venue(self):
+        """Published papers get @article with journal field."""
+        store = CitationStore()
+        paper = {
+            "title": "Published Work",
+            "authors": ["Scientist"],
+            "year": 2023,
+            "venue": "NeurIPS 2023",
+        }
+        key = store.register(paper)
+        entry = store.lookup_by_key(key)
+        assert "@article" in entry.bibtex_entry
+        assert "NeurIPS" in entry.bibtex_entry
+
+    def test_model_name_extraction_no_colon(self):
+        """Title without colon does not extract model name."""
+        from agent.evidence.citation_store import _extract_model_name_from_title
+        assert _extract_model_name_from_title("Dynamic Resolution") is None
+
+    def test_model_name_extraction_with_colon(self):
+        """Title with colon extracts model name prefix."""
+        from agent.evidence.citation_store import _extract_model_name_from_title
+        name = _extract_model_name_from_title("Qwen2-VL: Better Vision-Language Model")
+        assert name == "Qwen2-VL"
+
+    def test_model_name_extraction_stop_word(self):
+        """Title starting with stop word does not extract model name."""
+        from agent.evidence.citation_store import _extract_model_name_from_title
+        assert _extract_model_name_from_title("A Simple Approach to Vision") is None
+        assert _extract_model_name_from_title("The Best Model Yet") is None
+
+    def test_citation_store_register_fallback_paper_id(self):
+        """Paper without arxiv_id or paper_id generates a fallback."""
+        store = CitationStore()
+        paper = {"title": "Fallback Paper", "authors": ["Author"], "year": 2024}
+        key = store.register(paper)
+        assert key is not None
+        entry = store.lookup_by_key(key)
+        assert entry.paper_id.startswith("paper_")
+
+
+# =========================================================================
+# CitationAnchorStore (Phase 2)
+# =========================================================================
+
+class TestCitationAnchor:
+    def test_citation_anchor_creation(self):
+        anchor = CitationAnchor(
+            claim_text="Qwen2-VL uses dynamic resolution",
+            category="architecture",
+            paper_id="qwen2024",
+            citation_key="wang2024qwen2",
+            confidence=0.9,
+            evidence_excerpt="The model uses dynamic resolution.",
+        )
+        assert anchor.claim_text == "Qwen2-VL uses dynamic resolution"
+        assert anchor.category == "architecture"
+        assert anchor.citation_key == "wang2024qwen2"
+        assert anchor.confidence == 0.9
+
+    def test_citation_anchor_defaults(self):
+        anchor = CitationAnchor(
+            claim_text="Simple claim",
+            category="dataset",
+            paper_id="p1",
+            citation_key="key2024",
+        )
+        assert anchor.confidence == 0.0
+        assert anchor.evidence_excerpt == ""
+
+
+class TestCitationAnchorStore:
+    def test_empty_store(self):
+        store = CitationAnchorStore()
+        assert store.get_anchors() == []
+        assert store.anchor_count() == 0
+        assert store.get_evidence_map() == {}
+
+    def test_build_from_claims(self):
+        """Build anchors from verified claims and CitationStore."""
+        citation_store = CitationStore()
+        paper = {
+            "title": "Qwen2-VL: Better Vision-Language Model",
+            "authors": ["Wang", "Zhang"],
+            "year": 2024,
+            "arxiv_id": "qwen2024",
+        }
+        paper_key = citation_store.register(paper)
+
+        claims = [
+            Claim(claim="Uses dynamic resolution", category="architecture", paper_id="qwen2024", confidence=0.9, verified=True),
+            Claim(claim="MMLU score 85.3%", category="benchmark", paper_id="qwen2024", confidence=0.8, verified=True),
+        ]
+
+        anchor_store = CitationAnchorStore()
+        anchor_store.build(claims, citation_store)
+
+        assert anchor_store.anchor_count() == 2
+        anchors = anchor_store.get_anchors()
+        assert anchors[0].citation_key == paper_key
+        assert anchors[1].citation_key == paper_key
+
+    def test_build_no_claims(self):
+        """Empty claim list produces no anchors."""
+        anchor_store = CitationAnchorStore()
+        anchor_store.build([], CitationStore())
+        assert anchor_store.anchor_count() == 0
+
+    def test_build_claim_without_paper_id(self):
+        """Claim without paper_id is skipped."""
+        citation_store = CitationStore()
+        citation_store.register({"title": "Test", "authors": ["A"], "year": 2024, "arxiv_id": "p1"})
+
+        claims = [
+            Claim(claim="No paper id", category="architecture", paper_id="", confidence=0.5, verified=True),
+        ]
+        anchor_store = CitationAnchorStore()
+        anchor_store.build(claims, citation_store)
+        assert anchor_store.anchor_count() == 0
+
+    def test_build_claim_no_citation_match(self):
+        """Claim with paper_id not in CitationStore is skipped."""
+        citation_store = CitationStore()
+        claims = [
+            Claim(claim="Unknown paper", category="architecture", paper_id="nonexistent", confidence=0.5, verified=True),
+        ]
+        anchor_store = CitationAnchorStore()
+        anchor_store.build(claims, citation_store)
+        assert anchor_store.anchor_count() == 0
+
+    def test_get_anchors_by_category(self):
+        citation_store = CitationStore()
+        citation_store.register({"title": "Test Paper", "authors": ["A"], "year": 2024, "arxiv_id": "p1"})
+
+        claims = [
+            Claim(claim="Arch claim", category="architecture", paper_id="p1", confidence=0.9, verified=True),
+            Claim(claim="Bench claim", category="benchmark", paper_id="p1", confidence=0.8, verified=True),
+            Claim(claim="Dataset claim", category="dataset", paper_id="p1", confidence=0.7, verified=True),
+        ]
+        anchor_store = CitationAnchorStore()
+        anchor_store.build(claims, citation_store)
+
+        arch = anchor_store.get_anchors_by_category("architecture")
+        assert len(arch) == 1
+        assert arch[0].claim_text == "Arch claim"
+
+        bench = anchor_store.get_anchors_by_category("benchmark")
+        assert len(bench) == 1
+
+        assert anchor_store.get_anchors_by_category("comparison") == []
+
+    def test_get_anchor_for_claim(self):
+        citation_store = CitationStore()
+        citation_store.register({"title": "Test Paper", "authors": ["A"], "year": 2024, "arxiv_id": "p1"})
+
+        claims = [
+            Claim(claim="Uses dynamic resolution", category="architecture", paper_id="p1", confidence=0.9, verified=True),
+        ]
+        anchor_store = CitationAnchorStore()
+        anchor_store.build(claims, citation_store)
+
+        anchor = anchor_store.get_anchor_for_claim("Uses dynamic resolution")
+        assert anchor is not None
+        assert anchor.citation_key is not None
+
+        # Nonexistent claim
+        assert anchor_store.get_anchor_for_claim("Nonexistent") is None
+
+        # Case insensitive
+        anchor2 = anchor_store.get_anchor_for_claim("USES DYNAMIC RESOLUTION")
+        assert anchor2 is not None
+
+    def test_get_evidence_map(self):
+        citation_store = CitationStore()
+        key = citation_store.register({"title": "Test Paper", "authors": ["A"], "year": 2024, "arxiv_id": "p1"})
+
+        claims = [
+            Claim(claim="Uses dynamic resolution", category="architecture", paper_id="p1", confidence=0.9, verified=True),
+        ]
+        anchor_store = CitationAnchorStore()
+        anchor_store.build(claims, citation_store)
+
+        evidence_map = anchor_store.get_evidence_map()
+        assert "uses dynamic resolution" in evidence_map
+        assert key in evidence_map["uses dynamic resolution"]
+
+    def test_clear(self):
+        citation_store = CitationStore()
+        citation_store.register({"title": "Test Paper", "authors": ["A"], "year": 2024, "arxiv_id": "p1"})
+
+        claims = [Claim(claim="Test", category="architecture", paper_id="p1", confidence=0.9, verified=True)]
+        anchor_store = CitationAnchorStore()
+        anchor_store.build(claims, citation_store)
+        assert anchor_store.anchor_count() == 1
+        anchor_store.clear()
+        assert anchor_store.anchor_count() == 0
+        assert anchor_store.get_evidence_map() == {}
+
+    def test_build_with_knowledge_base(self):
+        """Build enriches with model name from PaperKnowledgeBase."""
+        citation_store = CitationStore()
+        citation_store.register(
+            {"title": "Qwen2-VL: Better Vision-Language Model", "authors": ["Wang"], "year": 2024, "arxiv_id": "qwen2024"},
+            model_names=["Qwen2-VL"],
+        )
+
+        knowledge_base = PaperKnowledgeBase()
+        arch = ArchitectureKnowledge(
+            vision_encoder=KnowledgeField(value="ViT-L/14"),
+        )
+        knowledge_base.add(PaperKnowledge(
+            paper_id="qwen2024",
+            title="Qwen2-VL: Better Vision-Language Model",
+            architecture=arch,
+        ))
+
+        claims = [Claim(claim="Uses dynamic resolution", category="architecture", paper_id="qwen2024", confidence=0.9, verified=True)]
+        anchor_store = CitationAnchorStore()
+        anchor_store.build(claims, citation_store, knowledge_base)
+        assert anchor_store.anchor_count() == 1
+
+    def test_build_claim_with_no_paper_id_in_citation_store_fallback(self):
+        """Fallback to model alias resolution when paper_id not found."""
+        citation_store = CitationStore()
+        citation_store.register(
+            {"title": "Qwen2-VL: Better Vision-Language Model", "authors": ["Wang"], "year": 2024, "arxiv_id": "qwenvl"},
+            model_names=["Qwen2-VL"],
+        )
+
+        # Claim references a different paper_id, but model name matches
+        knowledge_base = PaperKnowledgeBase()
+        knowledge_base.add(PaperKnowledge(
+            paper_id="qwen2024",
+            title="Qwen2-VL: Better Vision-Language Model",
+        ))
+
+        claims = [Claim(claim="Uses dynamic resolution", category="architecture", paper_id="qwen2024", confidence=0.9, verified=True)]
+        anchor_store = CitationAnchorStore()
+        anchor_store.build(claims, citation_store, knowledge_base)
+        # Should find via model alias from title prefix
+        assert anchor_store.anchor_count() == 1
+
+
+# =========================================================================
+# CitationInjector (Phase 2)
+# =========================================================================
+
+class TestCitationInjector:
+    def test_inject_basic(self):
+        store = CitationStore()
+        store.register({"title": "Qwen2-VL", "authors": ["Wang"], "year": 2024, "arxiv_id": "2403.1"})
+        injector = CitationInjector(store)
+        result = injector.inject("Qwen2-VL [CITE:wang2024qwen2] achieves great results.")
+        assert "~\\cite{wang2024qwen2}" in result
+        assert "[CITE:wang2024qwen2]" not in result
+
+    def test_inject_empty_draft(self):
+        injector = CitationInjector(CitationStore())
+        assert injector.inject("") == ""
+        assert injector.inject(None) is None
+
+    def test_inject_invalid_key(self):
+        """Invalid key is kept as-is."""
+        store = CitationStore()
+        store.register({"title": "Test", "authors": ["A"], "year": 2024, "arxiv_id": "2403.1"})
+        injector = CitationInjector(store)
+        result = injector.inject("Some claim [CITE:invalid_key] here.")
+        assert "[CITE:invalid_key]" in result
+
+    def test_inject_multiple_keys(self):
+        store = CitationStore()
+        store.register({"title": "Paper A", "authors": ["Alpha"], "year": 2024, "arxiv_id": "2403.1"})
+        store.register({"title": "Paper B", "authors": ["Beta"], "year": 2023, "arxiv_id": "2303.1"})
+        injector = CitationInjector(store)
+        # The keys are author-based, so let's grab them from the store
+        keys = store.get_all_keys()
+        result = injector.inject(f"Claim [CITE:{keys[0]}] and [CITE:{keys[1]}].")
+        assert f"~\\cite{{{keys[0]}}}" in result
+        assert f"~\\cite{{{keys[1]}}}" in result
+
+    def test_validate_all(self):
+        store = CitationStore()
+        store.register({"title": "Test", "authors": ["A"], "year": 2024, "arxiv_id": "2403.1"})
+        injector = CitationInjector(store)
+        keys = store.get_all_keys()
+        valid_key = keys[0]
+
+        # All valid
+        assert injector.validate_all(f"[CITE:{valid_key}]") == []
+
+        # Mixed valid and invalid
+        invalid = injector.validate_all(f"[CITE:{valid_key}] [CITE:invalid]")
+        assert invalid == ["invalid"]
+
+        # All invalid
+        invalid2 = injector.validate_all("[CITE:bad1] [CITE:bad2]")
+        assert len(invalid2) == 2
+
+    def test_validate_all_empty(self):
+        injector = CitationInjector(CitationStore())
+        assert injector.validate_all("") == []
+        assert injector.validate_all("No citations here") == []
+
+    def test_get_used_keys(self):
+        store = CitationStore()
+        store.register({"title": "Test", "authors": ["A"], "year": 2024, "arxiv_id": "2403.1"})
+        injector = CitationInjector(store)
+        keys = store.get_all_keys()
+        used = injector.get_used_keys(f"[CITE:{keys[0]}] and [CITE:{keys[0]}]")
+        assert used == [keys[0]]  # deduplicated
+
+    def test_get_missing_keys(self):
+        store = CitationStore()
+        store.register({"title": "Test", "authors": ["A"], "year": 2024, "arxiv_id": "2403.1"})
+        injector = CitationInjector(store)
+        keys = store.get_all_keys()
+        missing = injector.get_missing_keys(f"[CITE:{keys[0]}] [CITE:missing]")
+        assert missing == ["missing"]
+
+
+# =========================================================================
+# BenchmarkTableGenerator (Phase 2)
+# =========================================================================
+
+class TestBenchmarkTableGenerator:
+    def test_generate_benchmark_table_basic(self):
+        benchmark_store = BenchmarkStore()
+        citation_store = CitationStore()
+        citation_store.register(
+            {"title": "Qwen2-VL", "authors": ["Wang"], "year": 2024, "arxiv_id": "2403.1"},
+        )
+        key = citation_store.get_all_keys()[0]
+
+        benchmark_store.add_records([
+            BenchmarkRecord(
+                id="b1", model_name="Qwen2-VL", benchmark_name="MMLU",
+                metric="accuracy", score="85.3", citation_key=key, verified=True,
+            ),
+        ])
+
+        generator = BenchmarkTableGenerator(benchmark_store, citation_store)
+        table = generator.generate_benchmark_table("MMLU")
+        assert "\\begin{table}" in table
+        assert "MMLU" in table
+        assert "Qwen2-VL" in table
+        assert "85.3\\%" in table
+        assert f"\\cite{{{key}}}" in table
+        assert "\\end{table}" in table
+
+    def test_generate_benchmark_table_empty(self):
+        generator = BenchmarkTableGenerator(BenchmarkStore(), CitationStore())
+        assert generator.generate_benchmark_table("NonExistent") == ""
+
+    def test_generate_benchmark_table_no_verified(self):
+        benchmark_store = BenchmarkStore()
+        benchmark_store.add_records([
+            BenchmarkRecord(id="b1", model_name="M", benchmark_name="B", metric="acc", score="90", verified=False),
+        ])
+        generator = BenchmarkTableGenerator(benchmark_store, CitationStore())
+        assert generator.generate_benchmark_table("B") == ""
+
+    def test_generate_benchmark_table_sorted(self):
+        benchmark_store = BenchmarkStore()
+        benchmark_store.add_records([
+            BenchmarkRecord(id="b1", model_name="Model A", benchmark_name="MMLU", metric="acc", score="82.1", verified=True),
+            BenchmarkRecord(id="b2", model_name="Model B", benchmark_name="MMLU", metric="acc", score="90.0", verified=True),
+            BenchmarkRecord(id="b3", model_name="Model C", benchmark_name="MMLU", metric="acc", score="85.3", verified=True),
+        ])
+        generator = BenchmarkTableGenerator(benchmark_store, CitationStore())
+        table = generator.generate_benchmark_table("MMLU")
+        # Should be sorted by score descending: 90.0, 85.3, 82.1
+        score_90 = table.index("90.0")
+        score_85 = table.index("85.3")
+        score_82 = table.index("82.1")
+        assert score_90 < score_85 < score_82
+
+    def test_generate_summary_table(self):
+        knowledge_base = PaperKnowledgeBase()
+        knowledge_base.add(PaperKnowledge(
+            paper_id="p1",
+            title="Qwen2-VL: Better Vision-Language Model",
+            architecture=ArchitectureKnowledge(
+                vision_encoder=KnowledgeField(value="ViT-L/14"),
+                language_model=KnowledgeField(value="Qwen2-7B"),
+            ),
+        ))
+        knowledge_base.add(PaperKnowledge(
+            paper_id="p2",
+            title="LLaVA-NeXT: Improved Reasoning",
+            architecture=ArchitectureKnowledge(
+                vision_encoder=KnowledgeField(value="ViT-L/14"),
+                language_model=KnowledgeField(value="Llama-3-8B"),
+            ),
+        ))
+
+        generator = BenchmarkTableGenerator(BenchmarkStore(), CitationStore())
+        table = generator.generate_summary_table(knowledge_base)
+        assert "\\begin{table}" in table
+        assert "Qwen2-VL" in table
+        assert "LLaVA-NeXT" in table
+        assert "ViT-L/14" in table
+        assert "Qwen2-7B" in table
+        assert "Llama-3-8B" in table
+
+    def test_generate_summary_table_empty(self):
+        generator = BenchmarkTableGenerator(BenchmarkStore(), CitationStore())
+        assert generator.generate_summary_table(PaperKnowledgeBase()) == ""
+
+    def test_generate_summary_table_no_architecture(self):
+        knowledge_base = PaperKnowledgeBase()
+        knowledge_base.add(PaperKnowledge(paper_id="p1", title="Paper without arch"))
+        generator = BenchmarkTableGenerator(BenchmarkStore(), CitationStore())
+        assert generator.generate_summary_table(knowledge_base) == ""
+
+    def test_replace_tables_benchmark(self):
+        benchmark_store = BenchmarkStore()
+        citation_store = CitationStore()
+        citation_store.register(
+            {"title": "Qwen2-VL", "authors": ["Wang"], "year": 2024, "arxiv_id": "2403.1"},
+        )
+        key = citation_store.get_all_keys()[0]
+        benchmark_store.add_records([
+            BenchmarkRecord(id="b1", model_name="Qwen2-VL", benchmark_name="MMLU", metric="acc", score="85.3", citation_key=key, verified=True),
+        ])
+
+        generator = BenchmarkTableGenerator(benchmark_store, citation_store)
+        draft = "Some text [TABLE:benchmark_MMLU] more text."
+        result = generator.replace_tables(draft)
+        assert "[TABLE:benchmark_MMLU]" not in result
+        assert "\\begin{table}" in result
+        assert "85.3\\%" in result
+
+    def test_replace_tables_unknown_marker(self):
+        """Unknown marker is kept as-is."""
+        generator = BenchmarkTableGenerator(BenchmarkStore(), CitationStore())
+        draft = "Text [TABLE:unknown_marker] text."
+        result = generator.replace_tables(draft)
+        assert "[TABLE:unknown_marker]" in result
+
+    def test_replace_tables_empty_draft(self):
+        generator = BenchmarkTableGenerator(BenchmarkStore(), CitationStore())
+        assert generator.replace_tables("") == ""
+
+    def test_replace_tables_model_taxonomy(self):
+        knowledge_base = PaperKnowledgeBase()
+        knowledge_base.add(PaperKnowledge(
+            paper_id="p1",
+            title="Qwen2-VL: Better Vision-Language Model",
+            architecture=ArchitectureKnowledge(
+                vision_encoder=KnowledgeField(value="ViT-L/14"),
+            ),
+        ))
+
+        generator = BenchmarkTableGenerator(BenchmarkStore(), CitationStore())
+        draft = "Text [TABLE:model_taxonomy] text."
+        result = generator.replace_tables(draft, knowledge_base)
+        assert "[TABLE:model_taxonomy]" not in result
+        assert "\\begin{table}" in result
+
+    def test_replace_tables_model_taxonomy_no_kb(self):
+        """[TABLE:model_taxonomy] without knowledge_base keeps marker."""
+        generator = BenchmarkTableGenerator(BenchmarkStore(), CitationStore())
+        draft = "Text [TABLE:model_taxonomy] text."
+        result = generator.replace_tables(draft)
+        assert "[TABLE:model_taxonomy]" in result
+
+    def test_get_stale_markers(self):
+        generator = BenchmarkTableGenerator(BenchmarkStore(), CitationStore())
+        draft = "Text [TABLE:benchmark_MMLU] and [TABLE:unknown]."
+        stale = generator.get_stale_markers(draft)
+        assert "benchmark_MMLU" in stale
+        assert "unknown" in stale
+
+    def test_parse_score(self):
+        from agent.evidence.table_generator import _parse_score
+        assert _parse_score("85.3") == 85.3
+        assert _parse_score("90") == 90.0
+        assert _parse_score("83.2 (+2.4)") == 83.2
+        assert _parse_score("4.5/5") == 4.5
+        assert _parse_score("") == 0.0
+        assert _parse_score("abc") == 0.0
