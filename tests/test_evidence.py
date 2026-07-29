@@ -322,7 +322,11 @@ class TestClaimVerifier:
 class TestEvidenceChecker:
     def test_empty_draft(self):
         store = EvidenceStore()
-        checker = EvidenceChecker(evidence_store=store)
+        checker = EvidenceChecker(
+            evidence_store=store,
+            benchmark_store=BenchmarkStore(),
+            knowledge_base=PaperKnowledgeBase(),
+        )
         result = checker.validate({"content": ""})
         assert result.passed is True
         assert result.score == 1.0
@@ -334,7 +338,11 @@ class TestEvidenceChecker:
             Claim(claim="Qwen2-VL uses dynamic resolution", category="architecture", paper_id="p1", confidence=0.9),
         ])
         store.mark_verified(["Qwen2-VL uses dynamic resolution"])
-        checker = EvidenceChecker(evidence_store=store)
+        checker = EvidenceChecker(
+            evidence_store=store,
+            benchmark_store=BenchmarkStore(),
+            knowledge_base=PaperKnowledgeBase(),
+        )
         result = checker.validate({
             "content": "Qwen2-VL uses dynamic resolution to process images at variable scales."
         })
@@ -348,7 +356,11 @@ class TestEvidenceChecker:
             Claim(claim="Uses dynamic resolution", category="architecture", paper_id="p1", confidence=0.9),
         ])
         store.mark_verified(["Uses dynamic resolution"])
-        checker = EvidenceChecker(evidence_store=store)
+        checker = EvidenceChecker(
+            evidence_store=store,
+            benchmark_store=BenchmarkStore(),
+            knowledge_base=PaperKnowledgeBase(),
+        )
         result = checker.validate({
             "content": "Qwen2-VL achieves 99.9% accuracy on ImageNet."
         })
@@ -364,7 +376,11 @@ class TestEvidenceChecker:
             Claim(claim="Uses dynamic resolution", category="architecture", paper_id="p1", confidence=0.9),
         ])
         # Not verified
-        checker = EvidenceChecker(evidence_store=store)
+        checker = EvidenceChecker(
+            evidence_store=store,
+            benchmark_store=BenchmarkStore(),
+            knowledge_base=PaperKnowledgeBase(),
+        )
         result = checker.validate({
             "content": "Qwen2-VL uses dynamic resolution."
         })
@@ -378,7 +394,11 @@ class TestEvidenceChecker:
             Claim(claim="MMLU score: 85.3%", category="benchmark", paper_id="p1", confidence=0.9),
         ])
         store.mark_verified(["MMLU score: 85.3%"])
-        checker = EvidenceChecker(evidence_store=store)
+        checker = EvidenceChecker(
+            evidence_store=store,
+            benchmark_store=BenchmarkStore(),
+            knowledge_base=PaperKnowledgeBase(),
+        )
         result = checker.validate({
             "content": "Qwen2-VL achieves 90.0% on MMLU."
         })
@@ -393,7 +413,12 @@ class TestEvidenceChecker:
         store.mark_verified(["Uses dynamic resolution"])
         # LLM returns empty list = clears all candidates
         llm = MockLLM(fixed_response="[]")
-        checker = EvidenceChecker(evidence_store=store, llm=llm)
+        checker = EvidenceChecker(
+            evidence_store=store,
+            benchmark_store=BenchmarkStore(),
+            knowledge_base=PaperKnowledgeBase(),
+            llm=llm,
+        )
         result = checker.validate({
             "content": "Qwen2-VL uses dynamic resolution. It achieves 99.9% accuracy."
         })
@@ -405,19 +430,150 @@ class TestEvidenceChecker:
 
     def test_checker_name(self):
         store = EvidenceStore()
-        checker = EvidenceChecker(evidence_store=store)
+        checker = EvidenceChecker(
+            evidence_store=store,
+            benchmark_store=BenchmarkStore(),
+            knowledge_base=PaperKnowledgeBase(),
+        )
         assert checker.name == "check_evidence"
 
     def test_checker_no_evidence_store_still_works(self):
         """Checker works with empty evidence store and no LLM."""
         store = EvidenceStore()
-        checker = EvidenceChecker(evidence_store=store)
+        checker = EvidenceChecker(
+            evidence_store=store,
+            benchmark_store=BenchmarkStore(),
+            knowledge_base=PaperKnowledgeBase(),
+        )
         result = checker.validate({
             "content": "Some paper uses a novel approach."
         })
         # Without verified claims, all candidates are flagged
         # "uses a novel approach" matches the "uses" pattern
         assert isinstance(result, ValidationResult)
+
+    # ------------------------------------------------------------------
+    # New 3-store validation tests
+    # ------------------------------------------------------------------
+
+    def test_evidence_checker_benchmark_mismatch(self):
+        """Detects benchmark number inconsistency using BenchmarkStore."""
+        evidence_store = EvidenceStore()
+        benchmark_store = BenchmarkStore()
+        benchmark_store.add_records([
+            BenchmarkRecord(
+                id="b1",
+                model_name="Qwen2-VL",
+                benchmark_name="MMLU",
+                metric="accuracy",
+                score="85.3",
+                verified=True,
+            ),
+        ])
+        knowledge_base = PaperKnowledgeBase()
+
+        checker = EvidenceChecker(
+            evidence_store=evidence_store,
+            benchmark_store=benchmark_store,
+            knowledge_base=knowledge_base,
+        )
+        result = checker.validate({
+            "content": "Qwen2-VL achieves 90.0% on MMLU."
+        })
+        assert result.passed is False
+        # The benchmark_mismatch or missing_reference issue should be present
+        assert any("MMLU" in issue for issue in result.issues)
+
+    def test_evidence_checker_model_inconsistency(self):
+        """Detects architecture description mismatch using PaperKnowledgeBase."""
+        evidence_store = EvidenceStore()
+        benchmark_store = BenchmarkStore()
+        knowledge_base = PaperKnowledgeBase()
+        arch = ArchitectureKnowledge(
+            vision_encoder=KnowledgeField(value="ViT-L/14"),
+        )
+        knowledge_base.add(PaperKnowledge(
+            paper_id="qwen2024",
+            title="Qwen2-VL: Better Vision-Language Model",
+            architecture=arch,
+        ))
+
+        checker = EvidenceChecker(
+            evidence_store=evidence_store,
+            benchmark_store=benchmark_store,
+            knowledge_base=knowledge_base,
+        )
+        result = checker.validate({
+            "content": "Qwen2-VL uses a ViT-B/32 vision encoder."
+        })
+        assert result.passed is False
+        # Should flag architecture_mismatch — ViT-L/14 in KB vs ViT-B/32 in draft
+        assert any("architecture_mismatch" in issue or "ViT" in issue for issue in result.issues)
+
+    def test_evidence_checker_missing_evidence(self):
+        """Detects strong claim with no evidence in any store."""
+        evidence_store = EvidenceStore()
+        evidence_store.add_claims([
+            Claim(claim="Uses dynamic resolution", category="architecture", paper_id="p1", confidence=0.9),
+        ])
+        evidence_store.mark_verified(["Uses dynamic resolution"])
+        benchmark_store = BenchmarkStore()
+        knowledge_base = PaperKnowledgeBase()
+
+        checker = EvidenceChecker(
+            evidence_store=evidence_store,
+            benchmark_store=benchmark_store,
+            knowledge_base=knowledge_base,
+        )
+        # The draft claim "99.9% accuracy" is not in any store
+        result = checker.validate({
+            "content": "Qwen2-VL uses dynamic resolution. It achieves 99.9% accuracy on ImageNet."
+        })
+        # The supported claim "uses dynamic resolution" should be fine
+        # The unsupported claim "99.9% accuracy" should be flagged
+        assert result.passed is False
+        assert any("99.9%" in issue for issue in result.issues)
+
+    def test_evidence_checker_all_three_stores(self):
+        """Full checker flow with all three stores populated."""
+        evidence_store = EvidenceStore()
+        evidence_store.add_claims([
+            Claim(claim="Uses dynamic resolution", category="architecture", paper_id="p1", confidence=0.9),
+        ])
+        evidence_store.mark_verified(["Uses dynamic resolution"])
+
+        benchmark_store = BenchmarkStore()
+        benchmark_store.add_records([
+            BenchmarkRecord(
+                id="b1",
+                model_name="Qwen2-VL",
+                benchmark_name="MMLU",
+                metric="accuracy",
+                score="85.3",
+                verified=True,
+            ),
+        ])
+
+        knowledge_base = PaperKnowledgeBase()
+        knowledge_base.add(PaperKnowledge(
+            paper_id="qwen2024",
+            title="Qwen2-VL: Better Vision-Language Model",
+            main_contribution="Dynamic resolution approach",
+        ))
+
+        checker = EvidenceChecker(
+            evidence_store=evidence_store,
+            benchmark_store=benchmark_store,
+            knowledge_base=knowledge_base,
+        )
+        result = checker.validate({
+            "content": "Qwen2-VL uses dynamic resolution. It achieves 90.0% on MMLU."
+        })
+        # The supported claim "uses dynamic resolution" should be fine
+        # The benchmark claim "90.0% on MMLU" should be flagged (stored is 85.3%)
+        assert result.passed is False
+        assert any("MMLU" in issue for issue in result.issues)
+        assert any("90.0" in issue for issue in result.issues)
 
 
 # =========================================================================

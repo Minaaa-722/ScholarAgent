@@ -201,9 +201,13 @@ class Harness:
 
         # Add EvidenceChecker to the validator list (uses the orchestrator's evidence store)
         from agent.evidence.checker import EvidenceChecker
+        from agent.evidence.benchmark_store import BenchmarkStore
+        from agent.evidence.paper_knowledge import PaperKnowledgeBase
         self._validators.append(
             EvidenceChecker(
                 evidence_store=self._orchestrator._evidence_store,
+                benchmark_store=BenchmarkStore(),
+                knowledge_base=PaperKnowledgeBase(),
                 llm=llm,
             )
         )

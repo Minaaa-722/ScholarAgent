@@ -4,20 +4,26 @@ from typing import Optional
 
 from agent.core.llm import LLMBase
 from agent.evidence.evidence_store import EvidenceStore
+from agent.evidence.benchmark_store import BenchmarkStore
+from agent.evidence.paper_knowledge import PaperKnowledgeBase
 from agent.feedback.base import Validator, ValidationResult
 
 logger = logging.getLogger(__name__)
 
 
 class EvidenceChecker(Validator):
-    """Two-level draft evidence checker for the VALIDATION stage.
+    """Multi-store evidence checker for the VALIDATION stage.
 
-    Level 1 — Rule-based comparison against EvidenceStore:
-      Extracts candidate claims from the draft using regex patterns and
-      compares them against verified claims in the store.  Detects:
-        - Unsupported technical claims
-        - Benchmark number inconsistency
-        - Missing evidence references
+    Validates draft paper claims against three stores:
+      - EvidenceStore: verified claims (existing)
+      - BenchmarkStore: verified benchmark records
+      - PaperKnowledgeBase: structured paper knowledge (architecture, training, etc.)
+
+    Level 1 — Rule-based comparison against all three stores:
+      - Unsupported claims (not in EvidenceStore)
+      - Benchmark mismatch / missing benchmark (BenchmarkStore)
+      - Model inconsistency (PaperKnowledgeBase)
+      - Missing evidence (no reference in any store)
 
     Level 2 — LLM semantic verification (only for suspicious claims):
       Sends only the flagged candidate claims (not the full paper) to the
@@ -43,16 +49,20 @@ class EvidenceChecker(Validator):
     def __init__(
         self,
         evidence_store: EvidenceStore,
+        benchmark_store: BenchmarkStore,
+        knowledge_base: PaperKnowledgeBase,
         llm: Optional[LLMBase] = None,
     ):
         self._evidence_store = evidence_store
+        self._benchmark_store = benchmark_store
+        self._knowledge_base = knowledge_base
         self._llm = llm
 
     # ------------------------------------------------------------------
     # Validator interface
     # ------------------------------------------------------------------
     def validate(self, context: dict) -> ValidationResult:
-        """Run two-level evidence check on the draft.
+        """Run multi-store evidence check on the draft.
 
         Context expects:
             "content": str — the draft paper text
@@ -68,11 +78,17 @@ class EvidenceChecker(Validator):
                 repair_instructions="",
             )
 
-        # Level 1: Rule-based comparison
+        # Level 1: Rule-based comparison against all three stores
         candidates = self._extract_candidate_claims(content)
-        level1_issues = self._check_against_store(candidates)
 
-        if not level1_issues:
+        evidence_issues = self._check_against_store(candidates)
+        benchmark_issues = self._check_benchmarks(candidates)
+        model_issues = self._check_model_consistency(candidates)
+        missing_evidence_issues = self._check_missing_evidence(candidates)
+
+        all_issues = evidence_issues + benchmark_issues + model_issues + missing_evidence_issues
+
+        if not all_issues:
             return ValidationResult(
                 validator_name=self.name,
                 passed=True,
@@ -82,16 +98,17 @@ class EvidenceChecker(Validator):
             )
 
         # Level 2: LLM semantic verification for suspicious claims
-        if self._llm and level1_issues:
-            level2_issues = self._llm_verify(level1_issues, content)
-            final_issues = level2_issues if level2_issues else level1_issues
+        if self._llm and all_issues:
+            level2_issues = self._llm_verify(all_issues, content)
+            final_issues = level2_issues if level2_issues else all_issues
         else:
-            final_issues = level1_issues
+            final_issues = all_issues
 
         # Calculate score based on severity
         severity_weights = {
             "unsupported": 0.4,
             "benchmark_mismatch": 0.3,
+            "missing_benchmark": 0.3,
             "missing_reference": 0.2,
             "architecture_mismatch": 0.4,
         }
@@ -105,7 +122,7 @@ class EvidenceChecker(Validator):
         for issue in final_issues:
             issues_text.append(
                 f"[{issue.get('type', 'issue')}] {issue.get('claim', '')}"
-                f"{' — ' + issue.get('detail', '') if issue.get('detail') else ''}"
+                f"{' -- ' + issue.get('detail', '') if issue.get('detail') else ''}"
             )
 
         repair_instructions = (
@@ -163,10 +180,10 @@ class EvidenceChecker(Validator):
         return candidates
 
     # ------------------------------------------------------------------
-    # Level 1: Store comparison
+    # Level 1: EvidenceStore comparison
     # ------------------------------------------------------------------
     def _check_against_store(self, candidates: list[dict]) -> list[dict]:
-        """Compare candidate claims against verified claims in the store.
+        """Compare candidate claims against verified claims in EvidenceStore.
 
         Returns a filtered list of issues (only those not supported by evidence).
         """
@@ -195,6 +212,241 @@ class EvidenceChecker(Validator):
                 issues.append(candidate)
 
         return issues
+
+    # ------------------------------------------------------------------
+    # Level 1: BenchmarkStore comparison
+    # ------------------------------------------------------------------
+    def _check_benchmarks(self, candidates: list[dict]) -> list[dict]:
+        """Check benchmark claims against BenchmarkStore.
+
+        Detects:
+        - Benchmark mismatch: benchmark name in draft but score differs from stored record
+        - Missing benchmark: benchmark name in draft but no matching record
+        """
+        issues = []
+        benchmark_candidates = [
+            c for c in candidates
+            if c.get("type") == "benchmark_mismatch"
+        ]
+
+        for candidate in benchmark_candidates:
+            claim_text = candidate["claim"]
+            benchmark_name = self._extract_benchmark_name(claim_text)
+            draft_score = self._extract_score(claim_text)
+
+            if not benchmark_name:
+                continue
+
+            # Look up in BenchmarkStore
+            records = self._benchmark_store.lookup(benchmark_name)
+
+            if not records:
+                # Missing benchmark — no record at all
+                issues.append({
+                    "claim": claim_text,
+                    "type": "missing_benchmark",
+                    "detail": f"No benchmark record found for '{benchmark_name}'",
+                })
+            else:
+                # Check if draft score matches any verified record
+                verified_records = [r for r in records if r.verified]
+                if verified_records and draft_score:
+                    matched = False
+                    for record in verified_records:
+                        if record.score == draft_score:
+                            matched = True
+                            break
+                    if not matched:
+                        stored_scores = ", ".join(
+                            f"{r.benchmark_name}: {r.score}{r.score_unit}"
+                            for r in verified_records
+                        )
+                        issues.append({
+                            "claim": claim_text,
+                            "type": "benchmark_mismatch",
+                            "detail": (
+                                f"Benchmark '{benchmark_name}' score {draft_score}% "
+                                f"differs from stored: {stored_scores}"
+                            ),
+                        })
+
+        return issues
+
+    # ------------------------------------------------------------------
+    # Level 1: PaperKnowledgeBase model consistency
+    # ------------------------------------------------------------------
+    def _check_model_consistency(self, candidates: list[dict]) -> list[dict]:
+        """Check architecture claims against PaperKnowledgeBase.
+
+        Detects model inconsistency: architecture/training details in the
+        draft contradict stored knowledge.
+        """
+        issues = []
+        arch_candidates = [
+            c for c in candidates
+            if c.get("type") == "architecture_mismatch"
+        ]
+
+        if not arch_candidates or not self._knowledge_base.get_all():
+            return issues
+
+        for candidate in arch_candidates:
+            claim_text = candidate["claim"]
+            model_name = self._extract_model_name(claim_text)
+
+            if not model_name:
+                continue
+
+            # Look up model in knowledge base
+            for pk in self._knowledge_base.get_all():
+                is_match = (
+                    model_name.lower() in pk.title.lower()
+                    or model_name.lower() in pk.paper_id.lower()
+                    or (pk.main_contribution.lower() and model_name.lower() in pk.main_contribution.lower())
+                )
+                if not is_match:
+                    continue
+
+                # Check architecture details
+                if pk.architecture:
+                    arch = pk.architecture
+                    for field_name, field_value in [
+                        ("vision_encoder", arch.vision_encoder.value),
+                        ("language_model", arch.language_model.value),
+                        ("connector", arch.connector.value),
+                        ("resolution_strategy", arch.resolution_strategy.value),
+                    ]:
+                        if field_value and field_value.lower() not in claim_text.lower():
+                            issues.append({
+                                "claim": claim_text,
+                                "type": "architecture_mismatch",
+                                "detail": (
+                                    f"Model '{model_name}' has {field_name}="
+                                    f"'{field_value}' in knowledge base, "
+                                    f"but draft claims '{claim_text}'"
+                                ),
+                            })
+
+                # Check training details
+                if pk.training:
+                    training = pk.training
+                    for field_name, field_value in [
+                        ("pretraining_dataset", training.pretraining_dataset.value),
+                        ("optimization_method", training.optimization_method.value),
+                    ]:
+                        if field_value and field_value.lower() not in claim_text.lower():
+                            issues.append({
+                                "claim": claim_text,
+                                "type": "architecture_mismatch",
+                                "detail": (
+                                    f"Model '{model_name}' has {field_name}="
+                                    f"'{field_value}' in knowledge base, "
+                                    f"but draft claims '{claim_text}'"
+                                ),
+                            })
+
+        return issues
+
+    # ------------------------------------------------------------------
+    # Level 1: Missing evidence across all stores
+    # ------------------------------------------------------------------
+    def _check_missing_evidence(self, candidates: list[dict]) -> list[dict]:
+        """Check for strong technical claims with no evidence in any store.
+
+        Flags candidates that are not supported by any verified claim in
+        EvidenceStore, BenchmarkStore, or PaperKnowledgeBase.
+        """
+        issues = []
+
+        # Gather all evidence texts from all three stores
+        evidence_texts = set()
+
+        for claim in self._evidence_store.get_verified_claims():
+            evidence_texts.add(claim.claim.lower())
+
+        for record in self._benchmark_store.get_verified():
+            evidence_texts.add(record.benchmark_name.lower())
+            evidence_texts.add(f"{record.model_name} {record.benchmark_name}".lower())
+
+        for pk in self._knowledge_base.get_all():
+            evidence_texts.add(pk.title.lower())
+            if pk.main_contribution:
+                evidence_texts.add(pk.main_contribution.lower())
+
+        if not evidence_texts:
+            # No evidence available to compare against — skip
+            return issues
+
+        for candidate in candidates:
+            claim_text = candidate["claim"].lower()
+
+            found = False
+            for etext in evidence_texts:
+                if (len(claim_text) > 5 and claim_text in etext) or \
+                   (len(etext) > 5 and etext in claim_text):
+                    found = True
+                    break
+
+            if not found:
+                issues.append({
+                    "claim": candidate["claim"],
+                    "type": "missing_reference",
+                    "detail": "Strong technical claim with no evidence reference in any store",
+                })
+
+        return issues
+
+    # ------------------------------------------------------------------
+    # Helpers: extraction
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _extract_benchmark_name(claim_text: str) -> str:
+        """Extract benchmark name from a claim text.
+
+        Handles patterns like:
+        - "85.3% on MMLU" -> "MMLU"
+        - "MMLU: 85.3%" -> "MMLU"
+        - "Model achieves 90.0% on MMLU" -> "MMLU"
+        """
+        # Pattern: "85.3% on MMLU" or "85.3% accuracy on MMLU"
+        m = re.search(r'%\s*(?:on|in|for)\s+(\w+(?:\s+\w+){0,3})', claim_text)
+        if m:
+            return m.group(1).strip()
+
+        # Pattern: "MMLU: 85.3%" or "MMLU score: 85.3%"
+        m = re.search(
+            r'(\w+(?:\s+\w+){0,3})\s*(?::|score[s]?\s+of|accuracy\s+of)\s*\d',
+            claim_text,
+        )
+        if m:
+            return m.group(1).strip()
+
+        return ""
+
+    @staticmethod
+    def _extract_score(claim_text: str) -> str:
+        """Extract numeric score from a claim text."""
+        m = re.search(r'(\d+\.?\d*)\s*%', claim_text)
+        if m:
+            return m.group(1)
+        return ""
+
+    @staticmethod
+    def _extract_model_name(claim_text: str) -> str:
+        """Extract model name from a claim text.
+
+        Handles patterns like:
+        - "Qwen2-VL uses ..." -> "Qwen2-VL"
+        - "Model X achieves ..." -> "Model X" (but only first word with hyphen/slash)
+        """
+        m = re.search(
+            r'^(\w+(?:[-/]\w+)*)\s+(?:uses|employs|adopts|introduces|proposes|achieves)',
+            claim_text,
+            re.IGNORECASE,
+        )
+        if m:
+            return m.group(1)
+        return ""
 
     # ------------------------------------------------------------------
     # Level 2: LLM semantic verification
