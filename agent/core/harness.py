@@ -199,6 +199,15 @@ class Harness:
         )
         self._orchestrator.set_interrupt_event(self._interrupt_event)
 
+        # Add EvidenceChecker to the validator list (uses the orchestrator's evidence store)
+        from agent.evidence.checker import EvidenceChecker
+        self._validators.append(
+            EvidenceChecker(
+                evidence_store=self._orchestrator._evidence_store,
+                llm=llm,
+            )
+        )
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------

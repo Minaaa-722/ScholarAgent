@@ -21,3 +21,5 @@ web/dist/
 .idea/
 .vscode/
 *.swpoutput/
+
+.claude/

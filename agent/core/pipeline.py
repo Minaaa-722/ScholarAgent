@@ -8,6 +8,9 @@ from typing import Any, Callable, Optional
 
 from agent.core.state import AgentState, StateMachine
 from agent.core.llm import LLMBase, LLMResponse
+from agent.evidence.evidence_store import EvidenceStore, ClaimContextBuilder
+from agent.evidence.claim_extractor import ClaimExtractor
+from agent.evidence.verifier import ClaimVerifier
 from agent.feedback.base import ValidationResult, Validator
 from agent.guardrails.manager import GuardrailManager
 from agent.tools.registry import ToolRegistry
@@ -85,6 +88,11 @@ class PipelineOrchestrator:
         self._pending_revisions: list[str] = []
         self.latex_repair_log: Optional[Any] = None
 
+        # Evidence verification
+        self._evidence_store = EvidenceStore()
+        self._claim_extractor = ClaimExtractor(self.llm)
+        self._claim_verifier = ClaimVerifier(self.llm)
+
         # Progress tracking (read by Harness for API responses)
         self.current_stage: str = ""
         self.current_message: str = ""
@@ -143,6 +151,7 @@ class PipelineOrchestrator:
         self._pending_expansions = []
         self._pending_revisions = []
         self.latex_repair_log = None
+        self._evidence_store.clear()
         self.current_stage = ""
         self.current_message = ""
 
@@ -408,6 +417,8 @@ class PipelineOrchestrator:
             )
             resp = self._safe_llm_call(sys_prompt, user_msg)
             self._analysis = resp.text
+            # Extract and verify claims from analysis
+            self._extract_and_verify_claims(papers)
             return resp.text
 
         paper_summaries = []
@@ -441,6 +452,8 @@ class PipelineOrchestrator:
 
         resp = self._safe_llm_call(sys_prompt, user_msg)
         self._analysis = resp.text
+        # Extract and verify claims from analysis
+        self._extract_and_verify_claims(papers)
         return resp.text
 
     def _write_survey(self, analysis: str, round_num: int) -> str:
@@ -522,12 +535,16 @@ class PipelineOrchestrator:
             "You are an academic writing assistant specializing in computer vision surveys. "
             f"{writing_instruction}\n\n{cvpr_format_instructions}"
         )
+        # Evidence context for factual grounding
+        evidence_context = ClaimContextBuilder.build(self._evidence_store)
+
         user_msg = (
             f"Title: A Comprehensive Survey on {topic}\n"
             f"Keywords: {keywords}\n\n"
             f"Research Plan:\n{self._plan[:3000]}\n\n"
             f"Paper Analysis:\n{analysis[:6000]}\n\n"
             f"References:\n{ref_text}\n\n"
+            f"{evidence_context}\n\n"
             f"Round {round_num + 1} of up to {self.config.max_retries + 1}.\n\n"
             "IMPORTANT: Write the COMPLETE survey paper with all sections. "
             "Each section must have substantive technical content. "
@@ -537,6 +554,27 @@ class PipelineOrchestrator:
         resp = self._safe_llm_call(sys_prompt, user_msg)
         self._draft_sections = self._extract_sections(resp.text)
         return resp.text
+
+    def _extract_and_verify_claims(self, papers: list[dict]) -> None:
+        """Extract claims from analysis and verify them against paper sources.
+
+        Called at the end of _analyze_papers() for each code path.
+        Failures are logged but do not block the pipeline.
+        """
+        try:
+            claims = self._claim_extractor.extract(self._analysis, papers)
+            if claims:
+                self._evidence_store.add_claims(claims)
+                self._claim_verifier.verify_all(self._evidence_store, papers)
+                logger.info(
+                    "Evidence: %d claims extracted, %d verified",
+                    len(claims),
+                    self._evidence_store.verified_count(),
+                )
+            else:
+                logger.info("Evidence: no claims extracted from analysis")
+        except Exception as e:
+            logger.warning("Evidence extraction/verification failed: %s", e)
 
     def _incorporate_feedback(self, analysis: str, repairs: str) -> str:
         """Use LLM to revise the analysis based on validation feedback."""
