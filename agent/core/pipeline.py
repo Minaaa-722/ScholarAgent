@@ -116,6 +116,12 @@ class PipelineOrchestrator:
         self._evidence_extractor = EvidenceExtractor(self.llm)
         from agent.evidence.citation_store import CitationStore
         self._citation_store = CitationStore()
+        from agent.evidence.citation_anchor_store import CitationAnchorStore
+        self._citation_anchor_store = CitationAnchorStore()
+        from agent.evidence.citation_injector import CitationInjector
+        self._citation_injector = CitationInjector(self._citation_store)
+        from agent.evidence.table_generator import BenchmarkTableGenerator
+        self._table_generator = BenchmarkTableGenerator(self._benchmark_store, self._citation_store)
         self._pdf_chunks: dict[str, list[PDFChunk]] = {}
         self._evidence_refs: list[EvidenceReference] = []
         self._evidence_unavailable: set[str] = set()
@@ -148,6 +154,41 @@ class PipelineOrchestrator:
         self._last_failed_stage = None
         self._error_message = ""
 
+    def _validate_dependencies(self) -> None:
+        """Validate that all required pipeline dependencies are initialized.
+
+        Called at the start of ``run_pipeline()`` to catch missing
+        initializations early — before they cause obscure AttributeErrors
+        deep in a stage.
+
+        Raises:
+            RuntimeError: Describing which dependency is missing, with the
+                attribute name so the developer can quickly locate the gap.
+        """
+        _required = [
+            # Core LLM and tools
+            "_citation_store",
+            "_citation_anchor_store",
+            "_citation_injector",
+            "_table_generator",
+            # Evidence layer
+            "_evidence_store",
+            "_benchmark_store",
+            "_paper_knowledge_base",
+            "_claim_extractor",
+            "_claim_verifier",
+            # Paper parsing
+            "_pdf_parser",
+            "_evidence_extractor",
+            "_benchmark_extractor",
+            "_paper_analyzer",
+        ]
+        missing = [attr for attr in _required if not hasattr(self, attr)]
+        if missing:
+            raise RuntimeError(
+                f"Missing pipeline dependency: {', '.join(missing)}"
+            )
+
     def run_pipeline(
         self,
         task: TaskInfo,
@@ -158,6 +199,9 @@ class PipelineOrchestrator:
         on_progress: Optional[ProgressCallback] = None,
     ) -> PipelineResult:
         """Run the full survey-generation pipeline end-to-end."""
+        # Validate all dependencies are initialized before pipeline execution
+        self._validate_dependencies()
+
         self._task = task
         self._state = state
         self._feedback_queue = feedback_queue
@@ -182,6 +226,7 @@ class PipelineOrchestrator:
         self._benchmark_store.clear()
         self._paper_knowledge_base.clear()
         self._citation_store.clear()
+        self._citation_anchor_store.clear()
         self._pdf_chunks.clear()
         self._evidence_refs.clear()
         self._evidence_unavailable.clear()
@@ -521,6 +566,8 @@ class PipelineOrchestrator:
             self._extract_and_verify_claims(papers)
             # Extract benchmarks and paper knowledge from evidence references
             self._extract_benchmarks_and_knowledge()
+            # Build citation anchors from verified claims
+            self._build_citation_anchors()
             return resp.text
 
         paper_summaries = []
@@ -558,7 +605,34 @@ class PipelineOrchestrator:
         self._extract_and_verify_claims(papers)
         # Extract benchmarks and paper knowledge from evidence references
         self._extract_benchmarks_and_knowledge()
+        # Build citation anchors from verified claims
+        self._build_citation_anchors()
         return resp.text
+
+    def _build_citation_anchors(self) -> None:
+        """Build citation anchors from verified claims.
+
+        Populates the CitationAnchorStore so that _build_citation_context()
+        can include claim-to-citation mappings in the writing prompt.
+        Failures are logged but do not block the pipeline.
+        """
+        try:
+            verified = self._evidence_store.get_verified_claims()
+            if verified:
+                self._citation_anchor_store.build(
+                    claims=verified,
+                    citation_store=self._citation_store,
+                    paper_knowledge_base=self._paper_knowledge_base,
+                )
+                logger.info(
+                    "Citation anchors: %d built from %d verified claims",
+                    self._citation_anchor_store.anchor_count(),
+                    len(verified),
+                )
+            else:
+                logger.info("Citation anchors: no verified claims to build from")
+        except Exception as e:
+            logger.warning("Citation anchor build failed: %s", e)
 
     def _extract_benchmarks_and_knowledge(self) -> None:
         """Extract benchmark records and paper knowledge from evidence references.
@@ -753,7 +827,6 @@ class PipelineOrchestrator:
 
         # Step 2: Generate tables (requires benchmark_store from pipeline context)
         if self._benchmark_store:
-            self._table_generator._benchmark_store = self._benchmark_store
             draft = self._table_generator.replace_tables(draft)
 
         return draft
