@@ -55,9 +55,7 @@ class PdfParse(Tool):
                 text = page.get_text("text").strip()
                 full_text_parts.append(text)
             doc.close()
-            full_text = "
-
-".join(full_text_parts)
+            full_text = "".join(full_text_parts)
             logger.info("PDF parsed: %s (%d pages, %d chars)", pdf_path, len(doc), len(full_text))
             return ToolResult(success=True, data={
                 "pdf_path": pdf_path,
