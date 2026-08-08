@@ -5,7 +5,6 @@ import ResearchCreation from "./pages/ResearchCreation";
 import AgentExecution from "./pages/AgentExecution";
 import KnowledgeExplorer from "./pages/KnowledgeExplorer";
 import FinalReview from "./pages/FinalReview";
-import MemoryManager from "./pages/MemoryManager";
 import Credentials from "./pages/Credentials";
 import HistoryDetail from "./pages/HistoryDetail";
 import Layout from "./components/Layout";
@@ -24,7 +23,6 @@ function App() {
               <Route path="/execution" element={<AgentExecution />} />
               <Route path="/explorer" element={<KnowledgeExplorer />} />
               <Route path="/review" element={<FinalReview />} />
-              <Route path="/memory" element={<MemoryManager />} />
               <Route path="/credentials" element={<Credentials />} />
               <Route path="/history/:id" element={<HistoryDetail />} />
               <Route path="*" element={<Navigate to="/" />} />
