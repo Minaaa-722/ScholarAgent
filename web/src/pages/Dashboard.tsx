@@ -139,12 +139,14 @@ export default function Dashboard() {
           <h2 style={{ fontSize: "var(--font-size-lg)", marginBottom: "var(--space-sm)" }}>
             History ({history.length})
           </h2>
-          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "var(--space-lg)" }}>
             {history.map((item) => (
               <div
                 key={item.id}
                 onClick={() => navigate(`/history/${item.id}`)}
-                style={{ cursor: "pointer" }}
+                style={{ cursor: "pointer", transition: "box-shadow var(--transition-normal), transform var(--transition-normal)", borderRadius: "var(--radius-lg)" }}
+                onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "var(--shadow-lg)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.transform = "none"; }}
               >
                 <Card
                   title={item.topic}
@@ -153,15 +155,16 @@ export default function Dashboard() {
                       {item.status}
                     </Badge>
                   }
-                  style={{ maxWidth: 400 }}
                 >
-                  <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)" }}>
-                    {item.goal ? item.goal.slice(0, 100) + (item.goal.length > 100 ? "…" : "") : "No goal specified"}
-                  </p>
-                  <div style={{ display: "flex", gap: "0.8rem", marginTop: "0.3rem", fontSize: "var(--font-size-xs)", color: "var(--color-text-tertiary)" }}>
-                    <span>{item.paper_count} papers</span>
-                    <span>{item.rounds} round{item.rounds !== 1 ? "s" : ""}</span>
-                    <span>{item.timestamp}</span>
+                  <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+                    <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)", flex: 1 }}>
+                      {item.goal ? item.goal.slice(0, 100) + (item.goal.length > 100 ? "…" : "") : "No goal specified"}
+                    </p>
+                    <div style={{ display: "flex", gap: "0.8rem", marginTop: "0.5rem", fontSize: "var(--font-size-xs)", color: "var(--color-text-tertiary)" }}>
+                      <span>{item.paper_count} papers</span>
+                      <span>{item.rounds} round{item.rounds !== 1 ? "s" : ""}</span>
+                      <span>{item.timestamp}</span>
+                    </div>
                   </div>
                 </Card>
               </div>
