@@ -190,6 +190,10 @@ class Harness:
 
         # Interrupt event (shared between Harness and PipelineOrchestrator)
         self._interrupt_event = threading.Event()
+        # Pipeline generation counter — incremented on each cancel() so a
+        # stale background thread's finally block can't set
+        # _pipeline_running = False after a new task has started.
+        self._pipeline_generation: int = 0
 
         # Phase 2: Citation Integrity Layer stores
         self._benchmark_store = BenchmarkStore()
@@ -263,6 +267,9 @@ class Harness:
         self._orchestrator._pending_expansions = []
         self._orchestrator._pending_revisions = []
         self._orchestrator.latex_repair_log = None
+        # Sync the fresh interrupt event to the orchestrator (in case it
+        # was replaced by a previous cancel() call)
+        self._orchestrator.set_interrupt_event(self._interrupt_event)
         # Always create a fresh state machine for a new run
         self.state = StateMachine()
         self.state.transition_to(AgentState.PLANNING)
@@ -374,8 +381,22 @@ class Harness:
         the pipeline and resets the harness to its initial (idle) state.
         The frontend will then show the default Execution page.
         """
-        # Signal the pipeline to stop
+        # Signal the old pipeline to stop. We keep this event set so
+        # the old background thread sees it and exits.  We do NOT
+        # update the orchestrator's interrupt_event reference here —
+        # the old thread still holds the old (set) event and will
+        # check it at the next stage boundary.
         self._interrupt_event.set()
+
+        # Bump the generation counter so the stale background thread's
+        # finally block won't set _pipeline_running = False and kill
+        # a new pipeline started after this cancel.
+        self._pipeline_generation += 1
+
+        # Create a fresh interrupt event for the next pipeline, so it
+        # doesn't inherit the set event from the cancelled one.
+        # The orchestrator will pick it up via start() -> set_interrupt_event().
+        self._interrupt_event = threading.Event()
 
         # Force pipeline_running to False immediately
         self._pipeline_running = False
@@ -497,6 +518,8 @@ class Harness:
         on_progress: Optional[ProgressCallback] = None,
     ) -> None:
         """Run the pipeline in a background thread."""
+        self._pipeline_generation += 1
+        generation = self._pipeline_generation
         self._pipeline_running = True
         self.current_stage = "starting"
         self.current_message = "Starting pipeline…"
@@ -505,7 +528,11 @@ class Harness:
             try:
                 self.last_result = self.run(topic, keywords, goal, on_progress)
             finally:
-                self._pipeline_running = False
+                # Only clear pipeline_running if we're still the current
+                # generation — otherwise a stale thread from a cancelled
+                # pipeline would kill the new one.
+                if generation == self._pipeline_generation:
+                    self._pipeline_running = False
 
         thread = threading.Thread(target=_target, daemon=True)
         thread.start()
