@@ -367,6 +367,82 @@ class Harness:
         self.state.resume()
         self._interrupt_event.clear()
 
+    def cancel(self) -> None:
+        """Cancel the current pipeline and reset all state.
+
+        Unlike interrupt() which only pauses, cancel() fully terminates
+        the pipeline and resets the harness to its initial (idle) state.
+        The frontend will then show the default Execution page.
+        """
+        # Signal the pipeline to stop
+        self._interrupt_event.set()
+
+        # Force pipeline_running to False immediately
+        self._pipeline_running = False
+
+        # Reset state machine to IDLE
+        try:
+            self.state = StateMachine()
+        except Exception:
+            pass
+
+        # Clear task info
+        self.task = None
+        self.task_started_at = ""
+        self.current_stage = ""
+        self.current_message = ""
+        self.retry_count = 0
+        self.has_warnings = False
+
+        # Reset error state
+        self._pipeline_retry_count = 0
+        self._last_failed_stage = None
+        self._error_message = ""
+        self.execution_log = []
+        self.last_result = None
+        self.latex_repair_log = None
+
+        # Reset feedback
+        self.feedback_queue = []
+        self.feedback_history = []
+
+        # Reset stage artifacts
+        self._plan = ""
+        self._papers = []
+        self._analysis = ""
+        self._draft_sections = []
+        self._validation_scores = {}
+        self._retrieved_queries = []
+        self._pending_expansions = []
+        self._pending_revisions = []
+
+        # Reset orchestrator state
+        self._orchestrator.execution_log = []
+        self._orchestrator._pipeline_retry_count = 0
+        self._orchestrator._last_failed_stage = None
+        self._orchestrator._error_message = ""
+        self._orchestrator._plan = ""
+        self._orchestrator._papers = []
+        self._orchestrator._analysis = ""
+        self._orchestrator._draft_sections = []
+        self._orchestrator._validation_scores = {}
+        self._orchestrator._retrieved_queries = []
+        self._orchestrator._pending_expansions = []
+        self._orchestrator._pending_revisions = []
+        self._orchestrator.latex_repair_log = None
+        self._orchestrator.current_stage = ""
+        self._orchestrator.current_message = ""
+
+        # Clear evidence stores
+        self._orchestrator._evidence_store.clear()
+        self._orchestrator._benchmark_store.clear()
+        self._orchestrator._paper_knowledge_base.clear()
+        self._orchestrator._citation_store.clear()
+        self._orchestrator._citation_anchor_store.clear()
+        self._orchestrator._pdf_chunks.clear()
+        self._orchestrator._evidence_refs.clear()
+        self._orchestrator._evidence_unavailable.clear()
+
     def submit_human_feedback(self, category: str, content: str) -> dict:
         """外部 API 调用此方法注入反馈"""
         import uuid

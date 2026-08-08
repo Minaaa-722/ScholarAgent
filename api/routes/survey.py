@@ -37,6 +37,14 @@ async def resume_survey(harness: Harness = Depends(get_harness)):
     return SurveyResponse(**info)
 
 
+@router.post("/cancel", response_model=SurveyResponse)
+async def cancel_survey(harness: Harness = Depends(get_harness)):
+    """Cancel the current pipeline and reset all state back to idle."""
+    harness.cancel()
+    info = harness.get_task_info()
+    return SurveyResponse(**info)
+
+
 @router.post("/restart", response_model=SurveyResponse)
 async def restart_survey(harness: Harness = Depends(get_harness)):
     harness.restart()

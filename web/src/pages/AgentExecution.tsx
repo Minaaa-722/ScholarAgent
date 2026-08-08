@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { getSurveyStatus, submitFeedback, restartSurvey, interruptSurvey, resumeSurvey } from "../api/client";
+import { getSurveyStatus, submitFeedback, restartSurvey, interruptSurvey, resumeSurvey, cancelSurvey } from "../api/client";
 import Button from "../components/Button";
 import Card from "../components/Card";
 import Badge from "../components/Badge";
@@ -206,7 +206,10 @@ export default function AgentExecution() {
   const handleCancel = async () => {
     setShowCancelDialog(false);
     try {
-      await interruptSurvey();
+      await cancelSurvey();
+      // Reset page state to show the default "no task running" view
+      setProgress(null);
+      setTaskStartedAt("");
       showToast("info", "Task cancelled");
     } catch {
       showToast("error", "Cancel failed");

@@ -63,6 +63,19 @@ async def test_resume_survey(client, test_harness):
 
 
 @pytest.mark.asyncio
+async def test_cancel_survey(client, test_harness):
+    """Cancel should stop the pipeline and reset all state to idle."""
+    test_harness.start(topic="Test")
+    test_harness._pipeline_running = True  # Simulate running pipeline
+    response = await client.post("/api/survey/cancel")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["pipeline_running"] is False
+    assert data["status"] == "IDLE"
+    assert data.get("topic") is None or data.get("topic") == ""  # Topic cleared
+
+
+@pytest.mark.asyncio
 async def test_submit_feedback(client, test_harness):
     test_harness.start(topic="Test")
     test_harness._pipeline_running = True  # Simulate running pipeline
