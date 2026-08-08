@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { getSurveyStatus, submitFeedback, restartSurvey, interruptSurvey, resumeSurvey, cancelSurvey } from "../api/client";
+import { getSurveyStatus, submitFeedback, restartSurvey, cancelSurvey } from "../api/client";
 import Button from "../components/Button";
 import Card from "../components/Card";
 import Badge from "../components/Badge";
@@ -105,8 +105,7 @@ export default function AgentExecution() {
   const [restarting, setRestarting] = useState(false);
   const [restartError, setRestartError] = useState<string | null>(null);
 
-  // Interrupt/resume state
-  const [interrupting, setInterrupting] = useState(false);
+  // Cancel dialog state
   const [showCancelDialog, setShowCancelDialog] = useState(false);
 
   const { showToast } = useToast();
@@ -120,7 +119,7 @@ export default function AgentExecution() {
       // Stop reconnecting once the pipeline has reached a terminal state
       // and the WebSocket has delivered the final data
       return progress?.pipeline_running === false
-        && (progress?.status === "COMPLETE" || progress?.status === "ERROR");
+        && (progress?.status === "COMPLETE" || progress?.status === "ERROR" || progress?.status === "INTERRUPTED");
     },
     onMessage: (data: ProgressInfo) => {
       setProgress(data);
@@ -182,27 +181,6 @@ export default function AgentExecution() {
     }
   };
 
-  const handleInterrupt = async () => {
-    setInterrupting(true);
-    try {
-      await interruptSurvey();
-      showToast("info", "Pipeline paused");
-    } catch {
-      showToast("error", "Interrupt failed");
-    } finally {
-      setInterrupting(false);
-    }
-  };
-
-  const handleResume = async () => {
-    try {
-      await resumeSurvey();
-      showToast("success", "Pipeline resumed");
-    } catch {
-      showToast("error", "Resume failed");
-    }
-  };
-
   const handleCancel = async () => {
     setShowCancelDialog(false);
     try {
@@ -223,7 +201,6 @@ export default function AgentExecution() {
     && progress?.task_started_at
     && (progress?.status === "COMPLETE" || progress?.status === "ERROR");
   const pipelineRunning = progress?.pipeline_running === true;
-  const isInterrupted = progress?.status === "INTERRUPTED";
 
   const renderDefaultPage = () => (
     <div>
@@ -512,20 +489,8 @@ export default function AgentExecution() {
                 {/* Pipeline control buttons */}
                 <div style={{ display: "flex", gap: "0.5rem", flexShrink: 0 }}>
                   {pipelineRunning && (
-                    <>
-                      <Button variant="ghost" size="sm" onClick={handleInterrupt} loading={interrupting}
-                        style={{ color: "#fff", borderColor: "rgba(255,255,255,0.3)" }}>
-                        ⏸ Pause
-                      </Button>
-                      <Button variant="danger" size="sm" onClick={() => setShowCancelDialog(true)}>
-                        ⏹ Cancel
-                      </Button>
-                    </>
-                  )}
-                  {isInterrupted && (
-                    <Button variant="primary" size="sm" onClick={handleResume}
-                      style={{ background: "var(--color-success)", color: "#fff" }}>
-                      ▶ Resume
+                    <Button variant="danger" size="sm" onClick={() => setShowCancelDialog(true)}>
+                      ⏹ Cancel
                     </Button>
                   )}
                 </div>

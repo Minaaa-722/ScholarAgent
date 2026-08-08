@@ -267,8 +267,9 @@ class Harness:
         self._orchestrator._pending_expansions = []
         self._orchestrator._pending_revisions = []
         self._orchestrator.latex_repair_log = None
-        # Sync the fresh interrupt event to the orchestrator (in case it
-        # was replaced by a previous cancel() call)
+        # Always create a fresh interrupt event so the new pipeline
+        # doesn't inherit a stale set event from a previous pause/cancel
+        self._interrupt_event = threading.Event()
         self._orchestrator.set_interrupt_event(self._interrupt_event)
         # Always create a fresh state machine for a new run
         self.state = StateMachine()
