@@ -227,12 +227,12 @@ class Harness:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def start(self, topic: str, keywords: str = "", goal: str = "") -> None:
+    def start(self, topic: str, keywords: str = "", goal: str = "", max_papers: Optional[int] = None) -> None:
         self.task = TaskInfo(
             topic=topic,
             keywords=[k.strip() for k in keywords.split(",") if k.strip()],
             goal=goal,
-            max_papers=self.config.max_papers,
+            max_papers=max_papers if max_papers is not None else self.config.max_papers,
         )
         self.retry_count = 0
         self.has_warnings = False
@@ -487,6 +487,7 @@ class Harness:
         topic: str,
         keywords: str = "",
         goal: str = "",
+        max_papers: Optional[int] = None,
         on_progress: Optional[ProgressCallback] = None,
     ) -> dict:
         """Run the full survey-generation pipeline end-to-end.
@@ -499,7 +500,7 @@ class Harness:
           - error: error message if status is "error"
         """
         try:
-            self.start(topic, keywords, goal)
+            self.start(topic, keywords, goal, max_papers)
             return self._pipeline(on_progress)
         except Exception as e:
             logger.exception("Pipeline failed with fatal error")
@@ -516,6 +517,7 @@ class Harness:
         topic: str,
         keywords: str = "",
         goal: str = "",
+        max_papers: Optional[int] = None,
         on_progress: Optional[ProgressCallback] = None,
     ) -> None:
         """Run the pipeline in a background thread."""
@@ -527,7 +529,7 @@ class Harness:
 
         def _target():
             try:
-                self.last_result = self.run(topic, keywords, goal, on_progress)
+                self.last_result = self.run(topic, keywords, goal, max_papers, on_progress)
             finally:
                 # Only clear pipeline_running if we're still the current
                 # generation — otherwise a stale thread from a cancelled
