@@ -332,6 +332,17 @@ class PipelineOrchestrator:
             )
             results = self._run_validators(draft)
             report = self._aggregate_results(results)
+            validators_passed = sum(1 for r in results if r.passed)
+            self._emit_progress(
+                "info",
+                f"Validation: {validators_passed}/{len(results)} passed, "
+                f"overall score {report['overall_score']:.2f}",
+                {
+                    "validators_passed": validators_passed,
+                    "validators_total": len(results),
+                    "overall_score": report["overall_score"],
+                },
+            )
             self._log("VALIDATION", {
                 "round": rounds,
                 "score": round(report["overall_score"], 3),
@@ -786,6 +797,10 @@ class PipelineOrchestrator:
 
         ref_text = "\n".join(refs)
 
+        self._emit_progress(
+            "success", f"Built reference list ({len(self._papers)} papers)",
+        )
+
         if not analysis or len(analysis) < 200:
             analysis = (
                 f"The survey covers the topic of {topic}. "
@@ -859,8 +874,16 @@ class PipelineOrchestrator:
         context = retriever.retrieve_for_section()
         evidence_context = EvidenceContextBuilder.format(context)
 
+        self._emit_progress("info", "Retrieving evidence context for factual grounding...")
+
         # Phase 2: Citation anchor context
         citation_context = self._build_citation_context()
+
+        self._emit_progress(
+            "info",
+            f"Writing survey draft (round {round_num + 1}/{self.config.max_retries + 1})...",
+            {"round": round_num + 1, "total_rounds": self.config.max_retries + 1},
+        )
 
         user_msg = (
             f"Title: A Comprehensive Survey on {topic}\n"
@@ -878,7 +901,14 @@ class PipelineOrchestrator:
 
         resp = self._safe_llm_call(sys_prompt, user_msg)
         self._draft_sections = self._extract_sections(resp.text)
+        word_count = len(resp.text.split())
+        self._emit_progress(
+            "success",
+            f"Draft written ({word_count} words, {len(self._draft_sections)} sections)",
+            {"sections_count": len(self._draft_sections), "word_count": word_count},
+        )
 
+        self._emit_progress("info", "Post-processing: injecting citations and generating tables...")
         # Phase 2: Post-process — inject citations and generate tables
         draft = self._post_process(resp.text)
 
@@ -1001,7 +1031,30 @@ class PipelineOrchestrator:
             "content": draft or " ",
             "paper_ids": list(set(paper_ids)) if paper_ids else ["ref"],
         }
-        results = [v.validate(context) for v in self._validators]
+        results = []
+        for v in self._validators:
+            vname = v.__class__.__name__
+            self._emit_progress("info", f"Running validator: {vname}...")
+            try:
+                result = v.validate(context)
+                results.append(result)
+                if result.passed:
+                    self._emit_progress(
+                        "success", f"{vname}: passed (score {result.score:.2f})",
+                    )
+                else:
+                    self._emit_progress(
+                        "warning", f"{vname}: needs improvement (score {result.score:.2f})",
+                    )
+            except Exception as e:
+                self._emit_progress("error", f"{vname}: failed with error: {e}")
+                from agent.feedback.base import ValidationResult
+                results.append(ValidationResult(
+                    validator_name=vname,
+                    score=0.0, passed=False,
+                    repair_instructions=f"Validator crashed: {e}",
+                ))
+
         self._validation_scores = {
             r.validator_name: {
                 "score": r.score,
@@ -1152,10 +1205,16 @@ class PipelineOrchestrator:
     # ------------------------------------------------------------------
     def _format_repair(self, draft: str) -> str:
         """Run CVPR format repair on the LaTeX draft."""
+        self._emit_progress("info", "Running CVPR format repair...")
         repair_log = self._latex_repair.repair(draft)
         self.latex_repair_log = repair_log
 
         if repair_log.has_changes:
+            self._emit_progress(
+                "success",
+                f"Format repair: {repair_log.change_count} issue(s) fixed",
+                {"changes_count": repair_log.change_count},
+            )
             logger.info(
                 "CVPR format repair: %d change(s) applied",
                 repair_log.change_count,
@@ -1163,6 +1222,7 @@ class PipelineOrchestrator:
             for entry in repair_log.entries:
                 logger.debug("  %s", entry.short())
         else:
+            self._emit_progress("success", "Format repair: no changes needed")
             logger.info("CVPR format repair: no changes needed")
 
         return repair_log.fixed_text
