@@ -402,9 +402,17 @@ class PipelineOrchestrator:
 
         # Guardrail: rate limit check before LLM call
         self._guardrails.check_tool_call("llm_generate", {"prompt": user_msg})
+        self._emit_progress("info", "Generating research plan...")
 
         resp = self._safe_llm_call(sys_prompt, user_msg)
         self._plan = resp.text
+        # Count sections for the metrics
+        section_count = sum(1 for l in resp.text.split("\n")
+                            if l.strip().startswith(("\\section", "- **", "###")))
+        self._emit_progress(
+            "success", f"Research plan generated with {section_count} sections",
+            {"sections_count": section_count},
+        )
         return resp.text
 
     def _retrieve_papers(self) -> list[dict]:
