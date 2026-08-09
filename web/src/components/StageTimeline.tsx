@@ -1,6 +1,5 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import Card from "./Card";
-import LoadingSkeleton from "./LoadingSkeleton";
 
 /** Convert simple markdown patterns to readable HTML for display */
 function markdownToHtml(text: string): string {
@@ -123,6 +122,34 @@ export interface ExecutionDetails {
   validation?: Record<string, { score: number; passed: boolean; message: string }>;
 }
 
+export interface StageMessage {
+  type: "info" | "success" | "warning" | "error";
+  message: string;
+  timestamp: string;
+}
+
+export interface StageMetrics {
+  queries_total?: number;
+  queries_completed?: number;
+  papers_found?: number;
+  papers_downloaded?: number;
+  papers_total?: number;
+  sections_count?: number;
+  papers_analyzed?: number;
+  total_papers?: number;
+  claims_extracted?: number;
+  claims_verified?: number;
+  benchmark_records?: number;
+  round?: number;
+  total_rounds?: number;
+  word_count?: number;
+  citations_injected?: number;
+  changes_count?: number;
+  validators_passed?: number;
+  validators_total?: number;
+  overall_score?: number;
+}
+
 export interface StageTimelineProps {
   currentStage: string;
   stageOrder: string[];
@@ -130,6 +157,8 @@ export interface StageTimelineProps {
   executionDetails: ExecutionDetails | null;
   currentMessage: string;
   pipelineRunning: boolean;
+  stageMessages: StageMessage[];
+  stageMetrics: StageMetrics;
 }
 
 type StageStatus = "completed" | "active" | "pending";
@@ -425,6 +454,272 @@ function StageArtifact({
 }
 
 // ---------------------------------------------------------------------------
+// StageProgressView — rich progress display for active stages
+// ---------------------------------------------------------------------------
+
+const MESSAGE_ICONS: Record<string, string> = {
+  info: "⏳",
+  success: "✅",
+  warning: "⚠️",
+  error: "❌",
+};
+
+const MESSAGE_COLORS: Record<string, string> = {
+  info: "var(--color-primary)",
+  success: "var(--color-success)",
+  warning: "var(--color-warning)",
+  error: "var(--color-danger)",
+};
+
+interface MetricBadgeProps {
+  label: string;
+  value: string;
+  color: "blue" | "green" | "orange" | "red";
+}
+
+function MetricBadge({ label, value, color }: MetricBadgeProps) {
+  const colorMap: Record<string, { bg: string; text: string }> = {
+    blue: { bg: "var(--color-primary-light)", text: "var(--color-primary-dark)" },
+    green: { bg: "var(--color-success-light)", text: "var(--color-success-dark)" },
+    orange: { bg: "var(--color-warning-light)", text: "var(--color-warning-dark)" },
+    red: { bg: "var(--color-danger-light)", text: "var(--color-danger-dark)" },
+  };
+  const c = colorMap[color] || colorMap.blue;
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "0.3rem",
+        background: c.bg,
+        color: c.text,
+        padding: "0.2rem 0.6rem",
+        borderRadius: "var(--radius-full)",
+        fontSize: "var(--font-size-xs)",
+        fontWeight: 500,
+      }}
+    >
+      <strong>{value}</strong>
+      <span style={{ opacity: 0.8 }}>{label}</span>
+    </span>
+  );
+}
+
+function MetricProgress({
+  label,
+  current,
+  total,
+}: {
+  label: string;
+  current: number;
+  total: number;
+}) {
+  const pct = Math.min(100, Math.round((current / total) * 100));
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "0.4rem",
+        background: "var(--color-primary-light)",
+        padding: "0.2rem 0.6rem",
+        borderRadius: "var(--radius-full)",
+        fontSize: "var(--font-size-xs)",
+      }}
+    >
+      <span style={{ color: "var(--color-primary-dark)", fontWeight: 500, whiteSpace: "nowrap" }}>
+        {label}: {current}/{total}
+      </span>
+      <div
+        style={{
+          width: 60,
+          height: 6,
+          background: "var(--color-border-light)",
+          borderRadius: 3,
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            width: `${pct}%`,
+            height: "100%",
+            background: "var(--color-primary)",
+            borderRadius: 3,
+            transition: "width 0.3s ease",
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function renderStageMetrics(stage: string, metrics: StageMetrics): React.ReactNode {
+  if (!metrics || Object.keys(metrics).length === 0) return null;
+
+  switch (stage) {
+    case "retrieval": {
+      const { papers_downloaded, papers_total, papers_found } = metrics;
+      return (
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
+          {papers_found != null && (
+            <MetricBadge label="Papers found" value={String(papers_found)} color="blue" />
+          )}
+          {papers_downloaded != null && papers_total != null && papers_total > 0 && (
+            <MetricProgress label="PDFs" current={papers_downloaded} total={papers_total} />
+          )}
+        </div>
+      );
+    }
+    case "analysis": {
+      const { papers_analyzed, total_papers, claims_extracted, claims_verified } = metrics;
+      return (
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
+          {papers_analyzed != null && total_papers != null && total_papers > 0 && (
+            <MetricProgress label="Analyzed" current={papers_analyzed} total={total_papers} />
+          )}
+          {claims_extracted != null && <MetricBadge label="Claims" value={String(claims_extracted)} color="blue" />}
+          {claims_verified != null && <MetricBadge label="Verified" value={String(claims_verified)} color="green" />}
+        </div>
+      );
+    }
+    case "writing": {
+      const { round, total_rounds, word_count } = metrics;
+      return (
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
+          {round != null && total_rounds != null && total_rounds > 0 && (
+            <MetricProgress label="Round" current={round} total={total_rounds} />
+          )}
+          {word_count != null && <MetricBadge label="Words" value={String(word_count)} color="blue" />}
+        </div>
+      );
+    }
+    case "validation": {
+      const { validators_passed, validators_total, overall_score } = metrics;
+      return (
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
+          {validators_passed != null && validators_total != null && validators_total > 0 && (
+            <MetricProgress label="Passed" current={validators_passed} total={validators_total} />
+          )}
+          {overall_score != null && (
+            <MetricBadge
+              label="Score"
+              value={`${(overall_score * 100).toFixed(0)}%`}
+              color={overall_score >= 0.7 ? "green" : "orange"}
+            />
+          )}
+        </div>
+      );
+    }
+    case "planning": {
+      const { sections_count } = metrics;
+      return sections_count != null ? (
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
+          <MetricBadge label="Sections" value={String(sections_count)} color="blue" />
+        </div>
+      ) : null;
+    }
+    case "format_repair": {
+      const { changes_count } = metrics;
+      return changes_count != null ? (
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
+          <MetricBadge
+            label="Fixes"
+            value={String(changes_count)}
+            color={changes_count > 0 ? "orange" : "green"}
+          />
+        </div>
+      ) : null;
+    }
+    default:
+      return null;
+  }
+}
+
+function StageProgressView({
+  stage,
+  messages,
+  metrics,
+  currentMessage,
+}: {
+  stage: string;
+  messages: StageMessage[];
+  metrics: StageMetrics;
+  currentMessage: string;
+}) {
+  // Auto-scroll to bottom
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (listRef.current) {
+      listRef.current.scrollTop = listRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  return (
+    <div
+      style={{
+        background: "var(--color-primary-light)",
+        borderRadius: "var(--radius-lg)",
+        padding: "1rem",
+        borderLeft: "3px solid var(--color-primary)",
+      }}
+    >
+      {/* Metrics card */}
+      {renderStageMetrics(stage, metrics)}
+
+      {/* Message list */}
+      <div
+        ref={listRef}
+        style={{
+          maxHeight: "240px",
+          overflowY: "auto",
+          background: "var(--color-bg-card)",
+          borderRadius: "var(--radius-md)",
+          border: "1px solid var(--color-border-light)",
+          padding: "0.5rem",
+        }}
+      >
+        {messages.length === 0 && currentMessage && (
+          <div
+            style={{
+              padding: "0.4rem 0.6rem",
+              fontSize: "var(--font-size-sm)",
+              color: "var(--color-text-secondary)",
+              fontStyle: "italic",
+            }}
+          >
+            {currentMessage}
+          </div>
+        )}
+        {messages.map((m, i) => (
+          <div
+            key={i}
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: "0.4rem",
+              padding: "0.25rem 0.4rem",
+              fontSize: "var(--font-size-xs)",
+              color: "var(--color-text-secondary)",
+              animation: "message-fade-in 0.3s ease-out",
+              borderBottom: i < messages.length - 1
+                ? "1px solid var(--color-border-light)"
+                : "none",
+            }}
+          >
+            <span style={{ flexShrink: 0, fontSize: "0.85rem" }}>
+              {MESSAGE_ICONS[m.type] || "•"}
+            </span>
+            <span style={{ color: MESSAGE_COLORS[m.type] || "inherit" }}>
+              {m.message}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // StageEntry — one row in the timeline: dot + connection line + card
 // ---------------------------------------------------------------------------
 interface StageEntryProps {
@@ -435,6 +730,8 @@ interface StageEntryProps {
   executionDetails: ExecutionDetails | null;
   currentMessage: string;
   pipelineRunning: boolean;
+  stageMessages: StageMessage[];
+  stageMetrics: StageMetrics;
 }
 
 function StageEntry({
@@ -445,6 +742,8 @@ function StageEntry({
   executionDetails,
   currentMessage,
   pipelineRunning,
+  stageMessages,
+  stageMetrics,
 }: StageEntryProps) {
   const dotColor =
     status === "completed"
@@ -552,28 +851,12 @@ function StageEntry({
           stageHasData(stage, executionDetails) ? (
             <StageArtifact stage={stage} details={executionDetails} />
           ) : (
-            <div
-              style={{
-                background: "var(--color-primary-light)",
-                borderRadius: "var(--radius-lg)",
-                padding: "1rem",
-                borderLeft: "3px solid var(--color-primary)",
-              }}
-            >
-              <LoadingSkeleton variant="card" />
-              {currentMessage && (
-                <p
-                  style={{
-                    margin: "0.5rem 0 0",
-                    fontSize: "var(--font-size-sm)",
-                    color: "var(--color-text-secondary)",
-                    fontStyle: "italic",
-                  }}
-                >
-                  {currentMessage}
-                </p>
-              )}
-            </div>
+            <StageProgressView
+              stage={stage}
+              messages={stageMessages}
+              metrics={stageMetrics}
+              currentMessage={currentMessage}
+            />
           )
         )}
         {status === "active" && !pipelineRunning && (
@@ -592,6 +875,10 @@ const PULSE_KEYFRAMES = `
   0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
   70% { box-shadow: 0 0 0 8px rgba(59, 130, 246, 0); }
   100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+}
+@keyframes message-fade-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 `;
 
@@ -616,6 +903,8 @@ export default function StageTimeline(props: StageTimelineProps) {
     executionDetails,
     currentMessage,
     pipelineRunning,
+    stageMessages,
+    stageMetrics,
   } = props;
 
   // Only show stages up to "retrying" (ignore "complete", "error" — handled by other panels)
@@ -638,6 +927,8 @@ export default function StageTimeline(props: StageTimelineProps) {
             executionDetails={executionDetails}
             currentMessage={currentMessage}
             pipelineRunning={pipelineRunning}
+            stageMessages={stageMessages}
+            stageMetrics={stageMetrics}
           />
         );
       })}
