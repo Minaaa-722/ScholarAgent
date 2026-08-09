@@ -228,6 +228,11 @@ class Harness:
     # Public API
     # ------------------------------------------------------------------
     def start(self, topic: str, keywords: str = "", goal: str = "", max_papers: Optional[int] = None) -> None:
+        # Update the shared config so the PipelineOrchestrator (which uses
+        # self.config) picks up the user's requested paper count instead of
+        # the default 20.
+        if max_papers is not None:
+            self.config.max_papers = max_papers
         self.task = TaskInfo(
             topic=topic,
             keywords=[k.strip() for k in keywords.split(",") if k.strip()],
@@ -1050,6 +1055,7 @@ class Harness:
             topic=self.task.topic,
             keywords=", ".join(self.task.keywords),
             goal=self.task.goal,
+            max_papers=getattr(self.task, 'max_papers', self.config.max_papers),
         )
 
     @staticmethod
