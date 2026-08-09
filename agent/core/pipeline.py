@@ -34,12 +34,12 @@ class TaskInfo:
     topic: str
     keywords: list[str] = field(default_factory=list)
     goal: str = ""
-    max_papers: int = 20
+    max_papers: int = 50
 
 
 @dataclass
 class HarnessConfig:
-    max_papers: int = 20
+    max_papers: int = 50
     max_retries: int = 3
     quality_threshold: float = 0.7
     max_pipeline_retries: int = 2
@@ -478,7 +478,7 @@ class PipelineOrchestrator:
             arxiv_tool = self.tools.get("arxiv_search")
             if arxiv_tool:
                 arxiv_res = arxiv_tool.execute({
-                    "query": q, "max_results": self.config.max_papers,
+                    "query": q, "max_results": max(50, self.config.max_papers * 2),
                 })
                 if arxiv_res.success:
                     papers_count = len(arxiv_res.data.get("papers", []))
@@ -496,7 +496,7 @@ class PipelineOrchestrator:
             ss_tool = self.tools.get("semantic_scholar_search")
             if ss_tool:
                 ss_res = ss_tool.execute({
-                    "query": q, "max_results": self.config.max_papers,
+                    "query": q, "max_results": max(50, self.config.max_papers * 2),
                 })
                 if ss_res.success:
                     papers_count = len(ss_res.data.get("papers", []))

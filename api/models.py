@@ -5,7 +5,7 @@ class SurveyRequest(BaseModel):
     topic: str
     keywords: str = ""
     goal: str = ""
-    max_papers: int = 20
+    max_papers: int = 50
 
 
 class SurveyResponse(BaseModel):
@@ -13,7 +13,7 @@ class SurveyResponse(BaseModel):
     status: str
     keywords: list[str] = []
     goal: str = ""
-    max_papers: int = 20
+    max_papers: int = 50
     pipeline_running: bool = False
     current_stage: str = ""
     current_message: str = ""

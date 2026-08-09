@@ -90,7 +90,7 @@ def main():
     parser.add_argument(
         "--max-papers",
         type=int,
-        default=20,
+        default=50,
         help="Maximum number of papers to retrieve",
     )
     parser.add_argument(
