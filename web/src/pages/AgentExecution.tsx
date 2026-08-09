@@ -41,6 +41,34 @@ interface ExecutionDetails {
   validation?: Record<string, { score: number; passed: boolean; message: string }>;
 }
 
+interface StageMessage {
+  type: "info" | "success" | "warning" | "error";
+  message: string;
+  timestamp: string;
+}
+
+interface StageMetrics {
+  queries_total?: number;
+  queries_completed?: number;
+  papers_found?: number;
+  papers_downloaded?: number;
+  papers_total?: number;
+  sections_count?: number;
+  papers_analyzed?: number;
+  total_papers?: number;
+  claims_extracted?: number;
+  claims_verified?: number;
+  benchmark_records?: number;
+  round?: number;
+  total_rounds?: number;
+  word_count?: number;
+  citations_injected?: number;
+  changes_count?: number;
+  validators_passed?: number;
+  validators_total?: number;
+  overall_score?: number;
+}
+
 interface ProgressInfo {
   topic: string;
   status: string;
@@ -58,6 +86,8 @@ interface ProgressInfo {
   feedback_queue: FeedbackItem[];
   feedback_history: FeedbackItem[];
   execution_details: ExecutionDetails;
+  stage_messages: StageMessage[];
+  stage_metrics: StageMetrics;
 }
 
 const STAGE_LABELS: Record<string, string> = {
@@ -515,6 +545,8 @@ export default function AgentExecution() {
                   executionDetails={progress?.execution_details ?? null}
                   currentMessage={progress?.current_message ?? ""}
                   pipelineRunning={pipelineRunning}
+                  stageMessages={progress?.stage_messages ?? []}
+                  stageMetrics={progress?.stage_metrics ?? {}}
                 />
               </div>
               <div>{renderFeedbackPanel()}</div>
@@ -528,6 +560,8 @@ export default function AgentExecution() {
                 executionDetails={progress?.execution_details ?? null}
                 currentMessage={progress?.current_message ?? ""}
                 pipelineRunning={pipelineRunning}
+                stageMessages={progress?.stage_messages ?? []}
+                stageMetrics={progress?.stage_metrics ?? {}}
               />
               {renderErrorPanel()}
               {pipelineFinished && progress?.status !== "ERROR" && (
