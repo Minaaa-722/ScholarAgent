@@ -627,6 +627,7 @@ class PipelineOrchestrator:
             )
             resp = self._safe_llm_call(sys_prompt, user_msg)
             self._analysis = resp.text
+            self._emit_progress("info", "No papers retrieved — generating analysis from topic knowledge...")
             # Extract and verify claims from analysis
             self._extract_and_verify_claims(papers)
             # Extract benchmarks and paper knowledge from evidence references
@@ -647,6 +648,11 @@ class PipelineOrchestrator:
             )
         papers_text = "\n".join(paper_summaries)
 
+        self._emit_progress(
+            "info", f"Analyzing {len(papers)} papers via LLM...",
+            {"papers_analyzed": 0, "total_papers": len(papers)},
+        )
+
         sys_prompt = (
             "You are a research analysis assistant. "
             "Analyze the following papers and extract: "
@@ -666,6 +672,10 @@ class PipelineOrchestrator:
 
         resp = self._safe_llm_call(sys_prompt, user_msg)
         self._analysis = resp.text
+        self._emit_progress(
+            "success", "Paper analysis completed",
+            {"papers_analyzed": len(papers), "total_papers": len(papers)},
+        )
         # Extract and verify claims from analysis
         self._extract_and_verify_claims(papers)
         # Extract benchmarks and paper knowledge from evidence references
@@ -681,6 +691,7 @@ class PipelineOrchestrator:
         can include claim-to-citation mappings in the writing prompt.
         Failures are logged but do not block the pipeline.
         """
+        self._emit_progress("info", "Building citation anchors...")
         try:
             verified = self._evidence_store.get_verified_claims()
             if verified:
@@ -688,6 +699,10 @@ class PipelineOrchestrator:
                     claims=verified,
                     citation_store=self._citation_store,
                     paper_knowledge_base=self._paper_knowledge_base,
+                )
+                self._emit_progress(
+                    "success",
+                    f"{self._citation_anchor_store.anchor_count()} citation anchors built",
                 )
                 logger.info(
                     "Citation anchors: %d built from %d verified claims",
@@ -723,12 +738,17 @@ class PipelineOrchestrator:
         Called after paper analysis to populate the benchmark_store and
         paper_knowledge_base. Failures are logged but do not block the pipeline.
         """
+        self._emit_progress("info", "Extracting benchmark data and paper knowledge...")
         try:
             if self._evidence_refs:
                 # Extract benchmark records
                 benchmark_records = self._benchmark_extractor.extract(self._evidence_refs)
                 if benchmark_records:
                     self._benchmark_store.add_records(benchmark_records)
+                    self._emit_progress(
+                        "success", f"{len(benchmark_records)} benchmark records extracted",
+                        {"benchmark_records": len(benchmark_records)},
+                    )
                     logger.info("Evidence: %d benchmark records extracted", len(benchmark_records))
                 else:
                     logger.info("Evidence: no benchmark records extracted")
@@ -738,6 +758,9 @@ class PipelineOrchestrator:
                 if knowledge_list:
                     for pk in knowledge_list:
                         self._paper_knowledge_base.add(pk)
+                    self._emit_progress(
+                        "success", f"Knowledge extracted for {len(knowledge_list)} papers",
+                    )
                     logger.info("Evidence: knowledge extracted for %d papers", len(knowledge_list))
                 else:
                     logger.info("Evidence: no paper knowledge extracted")
@@ -920,15 +943,22 @@ class PipelineOrchestrator:
         Called at the end of _analyze_papers() for each code path.
         Failures are logged but do not block the pipeline.
         """
+        self._emit_progress("info", "Extracting claims from analysis...")
         try:
             claims = self._claim_extractor.extract(self._analysis, papers)
             if claims:
                 self._evidence_store.add_claims(claims)
+                self._emit_progress("success", f"Extracted {len(claims)} claims", {"claims_extracted": len(claims)})
                 self._claim_verifier.verify_all(self._evidence_store, papers)
+                verified_count = self._evidence_store.verified_count()
+                self._emit_progress(
+                    "success", f"{verified_count}/{len(claims)} claims verified",
+                    {"claims_verified": verified_count},
+                )
                 logger.info(
                     "Evidence: %d claims extracted, %d verified",
                     len(claims),
-                    self._evidence_store.verified_count(),
+                    verified_count,
                 )
             else:
                 logger.info("Evidence: no claims extracted from analysis")
