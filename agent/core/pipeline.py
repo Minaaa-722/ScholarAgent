@@ -452,24 +452,49 @@ class PipelineOrchestrator:
         if len(queries) < 3:
             queries.append(f"{' '.join(keywords[:3])}")
 
+        self._emit_progress(
+            "success", f"Generated {len(queries)} search queries",
+            {"queries_total": len(queries), "queries_completed": 0},
+        )
+
         # Search both sources
         all_results = []
-        for q in queries:
+        for i, q in enumerate(queries):
+            self._emit_progress(
+                "info",
+                f"Searching arXiv with query {i+1}/{len(queries)}: \"{q[:60]}\"",
+            )
             arxiv_tool = self.tools.get("arxiv_search")
             if arxiv_tool:
                 arxiv_res = arxiv_tool.execute({
                     "query": q, "max_results": self.config.max_papers,
                 })
                 if arxiv_res.success:
+                    papers_count = len(arxiv_res.data.get("papers", []))
+                    self._emit_progress(
+                        "success", f"arXiv: found {papers_count} papers",
+                    )
                     all_results.append(arxiv_res.data)
+                else:
+                    self._emit_progress("warning", f"arXiv search failed for query: {q[:60]}")
 
+            self._emit_progress(
+                "info",
+                f"Searching Semantic Scholar with query {i+1}/{len(queries)}: \"{q[:60]}\"",
+            )
             ss_tool = self.tools.get("semantic_scholar_search")
             if ss_tool:
                 ss_res = ss_tool.execute({
                     "query": q, "max_results": self.config.max_papers,
                 })
                 if ss_res.success:
+                    papers_count = len(ss_res.data.get("papers", []))
+                    self._emit_progress(
+                        "success", f"Semantic Scholar: found {papers_count} papers",
+                    )
                     all_results.append(ss_res.data)
+                else:
+                    self._emit_progress("warning", f"Semantic Scholar search failed for query: {q[:60]}")
 
             time.sleep(0.3)
 
@@ -477,12 +502,17 @@ class PipelineOrchestrator:
         merge_tool = self.tools.get("merge_results")
         merged = merge_tool.execute({"results": all_results}) if merge_tool else type('', (), {})()
         papers = merged.data.get("papers", []) if hasattr(merged, 'success') and merged.success else []
+        self._emit_progress(
+            "success", f"Merged and deduplicated: {len(papers)} unique papers",
+            {"papers_found": len(papers)},
+        )
 
         # Sort by citation count
         sort_tool = self.tools.get("sort_by_citation")
         if sort_tool:
             sorted_res = sort_tool.execute({"papers": papers})
             papers = sorted_res.data.get("papers", papers) if sorted_res.success else papers
+        self._emit_progress("success", f"Sorted {len(papers)} papers by citation count")
 
         self._papers = papers[:self.config.max_papers]
         self._retrieved_queries = queries
@@ -504,7 +534,13 @@ class PipelineOrchestrator:
         import os
         os.makedirs("output/pdfs", exist_ok=True)
 
-        for paper in self._papers:
+        papers_with_arxiv = [p for p in self._papers if p.get("arxiv_id")]
+        total_pdfs = len(papers_with_arxiv)
+        self._emit_progress(
+            "info", f"Downloading and parsing PDFs ({total_pdfs} papers with arXiv IDs)...",
+        )
+
+        for idx, paper in enumerate(papers_with_arxiv, 1):
             arxiv_id = paper.get("arxiv_id", "")
             paper_id = paper.get("paper_id", arxiv_id)
             if not arxiv_id:
@@ -513,13 +549,22 @@ class PipelineOrchestrator:
             pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
             save_path = f"output/pdfs/{arxiv_id}.pdf"
 
+            self._emit_progress(
+                "info",
+                f"Downloading PDF ({idx}/{total_pdfs}): {arxiv_id}",
+                {"papers_downloaded": idx - 1, "papers_total": total_pdfs},
+            )
+
             try:
                 # Download PDF
                 pdf_tool = self.tools.get("pdf_download")
                 if pdf_tool:
                     dl_res = pdf_tool.execute({"url": pdf_url, "save_path": save_path})
                     if not dl_res.success:
-                        logger.warning("PDF download failed for %s (%s): %s", paper_id, pdf_url, dl_res.error)
+                        self._emit_progress(
+                            "warning",
+                            f"PDF download failed for {arxiv_id}: {dl_res.error}",
+                        )
                         self._evidence_unavailable.add(paper_id)
                         continue
                 else:
@@ -529,7 +574,7 @@ class PipelineOrchestrator:
                 # Parse into chunks
                 chunks = self._pdf_parser.parse(paper_id, save_path)
                 if not chunks:
-                    logger.warning("PDF parsing returned no chunks for %s", paper_id)
+                    self._emit_progress("warning", f"PDF parsing returned no chunks for {arxiv_id}")
                     self._evidence_unavailable.add(paper_id)
                     continue
 
@@ -539,19 +584,23 @@ class PipelineOrchestrator:
                 refs = self._evidence_extractor.extract(chunks)
                 if refs:
                     self._evidence_refs.extend(refs)
-                    logger.info("Evidence: %d refs extracted from %s", len(refs), paper_id)
+                    self._emit_progress(
+                        "success", f"Evidence: {len(refs)} refs extracted from {arxiv_id}",
+                    )
                 else:
-                    logger.info("Evidence: no refs extracted from %s", paper_id)
+                    self._emit_progress("info", f"Evidence: no refs extracted from {arxiv_id}")
 
             except Exception as e:
-                logger.warning("Evidence extraction failed for paper %s: %s", paper_id, e)
+                self._emit_progress("warning", f"Evidence extraction failed for {arxiv_id}: {e}")
                 self._evidence_unavailable.add(paper_id)
 
-        logger.info(
-            "Evidence: %d papers with evidence, %d unavailable, %d total refs",
-            len(self._pdf_chunks),
-            len(self._evidence_unavailable),
-            len(self._evidence_refs),
+        # Update metrics with final PDF count
+        self._emit_progress(
+            "info",
+            f"Evidence: {len(self._pdf_chunks)} papers with evidence, "
+            f"{len(self._evidence_unavailable)} unavailable, "
+            f"{len(self._evidence_refs)} total refs",
+            {"papers_downloaded": len(self._pdf_chunks)},
         )
         return self._papers
 
