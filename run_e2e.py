@@ -176,6 +176,7 @@ def main():
             topic=args.topic,
             keywords=args.keywords,
             goal=args.goal,
+            max_papers=args.max_papers,
             on_progress=on_progress,
         )
     except KeyboardInterrupt:
