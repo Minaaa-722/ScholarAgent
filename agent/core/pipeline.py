@@ -130,6 +130,10 @@ class PipelineOrchestrator:
         self.current_stage: str = ""
         self.current_message: str = ""
 
+        # Progress details (consumed by frontend for rich stage display)
+        self.stage_messages: list[dict] = []
+        self.stage_metrics: dict = {}
+
         # Interrupt support
         self._interrupt_event: Optional[threading.Event] = None
 
@@ -153,6 +157,8 @@ class PipelineOrchestrator:
         self._pipeline_retry_count = 0
         self._last_failed_stage = None
         self._error_message = ""
+        self.stage_messages.clear()
+        self.stage_metrics.clear()
 
     def _validate_dependencies(self) -> None:
         """Validate that all required pipeline dependencies are initialized.
@@ -232,6 +238,8 @@ class PipelineOrchestrator:
         self._evidence_unavailable.clear()
         self.current_stage = ""
         self.current_message = ""
+        self.stage_messages.clear()
+        self.stage_metrics.clear()
 
         try:
             return self._pipeline(on_progress)
@@ -633,6 +641,24 @@ class PipelineOrchestrator:
                 logger.info("Citation anchors: no verified claims to build from")
         except Exception as e:
             logger.warning("Citation anchor build failed: %s", e)
+
+    def _emit_progress(self, msg_type: str, message: str, metrics: Optional[dict] = None) -> None:
+        """Record a progress message and optionally update stage metrics.
+
+        Args:
+            msg_type: One of "info", "success", "warning", "error".
+            message: Human-readable description of the current sub-step.
+            metrics: Optional dict of quantitative indicators to merge into
+                stage_metrics (e.g. {"papers_found": 5, "queries_completed": 2}).
+        """
+        entry = {
+            "type": msg_type,
+            "message": message,
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+        self.stage_messages.append(entry)
+        if metrics:
+            self.stage_metrics.update(metrics)
 
     def _extract_benchmarks_and_knowledge(self) -> None:
         """Extract benchmark records and paper knowledge from evidence references.
@@ -1105,8 +1131,12 @@ class PipelineOrchestrator:
         """Dispatch progress callback if set."""
         self.current_stage = stage
         self.current_message = msg
+        detail = self._build_task_info()
+        # Include last 20 messages to keep WebSocket payload bounded
+        detail["stage_messages"] = self.stage_messages[-20:]
+        detail["stage_metrics"] = dict(self.stage_metrics)
         if cb:
-            cb(stage, msg, self._build_task_info())
+            cb(stage, msg, detail)
 
     def _log(self, stage: str, data: dict) -> None:
         """Append to execution log with timestamp."""
