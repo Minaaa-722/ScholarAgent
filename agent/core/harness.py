@@ -324,6 +324,8 @@ class Harness:
                 "pipeline_retry_count": self._pipeline_retry_count,
                 "last_failed_stage": self._last_failed_stage.name if self._last_failed_stage else "",
                 "execution_details": details,
+                "stage_messages": self._orchestrator.stage_messages[-20:],
+                "stage_metrics": self._orchestrator.stage_metrics,
                 "feedback_queue": self.feedback_queue,
                 "feedback_history": self.feedback_history,
             }
@@ -343,6 +345,8 @@ class Harness:
             "pipeline_retry_count": self._pipeline_retry_count,
             "last_failed_stage": self._last_failed_stage.name if self._last_failed_stage else "",
             "execution_details": details,
+            "stage_messages": self._orchestrator.stage_messages[-20:],
+            "stage_metrics": self._orchestrator.stage_metrics,
             "feedback_queue": self.feedback_queue,
             "feedback_history": self.feedback_history,
         }
