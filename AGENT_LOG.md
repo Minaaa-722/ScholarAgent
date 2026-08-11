@@ -95,3 +95,16 @@
 - **发现**：6 个交付物缺失（Dockerfile、README.md、AGENT_LOG.md、REFLECTION.md、SPEC_PROCESS.md、CI 配置）
 - **行动**：补充所有缺失交付物
 - **状态**：项目验收完成
+
+## 2026-08-11
+
+### 修复：机制演示文件
+
+- **问题**：`tests/test_demo.py` 从未创建，导致课程要求 A.6 的机制演示缺失
+- **行动**：创建 `tests/test_demo.py`，包含 7 个测试用例，覆盖三个必备演示：
+  1. **守卫拦截**：`OpSafety` 拦截 `rm -rf /` 返回 `REQUIRE_APPROVAL`；`RateLimit` 在超限后 `BLOCK`
+  2. **反馈闭环**：`Harness.inject_feedback` 使状态从 `VALIDATION` 回退到 `WRITING`；超限重试后进入 `COMPLETE` 并标记警告
+  3. **重点维度确定性行为**：5 个校验器 + `FeedbackAggregator` + `RepairGenerator` 在已知输入上产生确定性结果
+- **验证**：全部 7 个测试通过（0.66s），不依赖网络与真实 LLM
+- **总测试数**：265 → 272
+- **产出**：`tests/test_demo.py`（commit: 70bd705）
