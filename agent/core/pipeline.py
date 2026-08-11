@@ -41,7 +41,6 @@ class TaskInfo:
 @dataclass
 class HarnessConfig:
     max_papers: int = 50
-    max_pdf_papers: int = 20  # Only process PDFs for top-N papers (by citation count)
     max_retries: int = 3
     quality_threshold: float = 0.7
     max_pipeline_retries: int = 2
@@ -543,8 +542,8 @@ class PipelineOrchestrator:
         import os
         os.makedirs("output/pdfs", exist_ok=True)
 
-        # Only process top-N papers by citation count (most cited = most relevant)
-        pdf_limit = min(self.config.max_pdf_papers, len(self._papers))
+        # Process PDFs for all max_papers papers (by citation count)
+        pdf_limit = min(self._task.max_papers, len(self._papers))
         papers_for_pdf = sorted(
             self._papers, key=lambda p: p.get("citation_count", 0), reverse=True
         )[:pdf_limit]
@@ -553,7 +552,7 @@ class PipelineOrchestrator:
         self._emit_progress(
             "info",
             f"Downloading and parsing PDFs for top {total_pdfs} papers "
-            f"(by citation count, limit={self.config.max_pdf_papers})...",
+            f"(by citation count, limit={self._task.max_papers})...",
             {"papers_downloaded": 0, "papers_total": total_pdfs},
         )
 

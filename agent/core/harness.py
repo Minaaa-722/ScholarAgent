@@ -36,7 +36,6 @@ ProgressCallback = Callable[[str, str, Optional[dict]], None]
 @dataclass
 class HarnessConfig:
     max_papers: int = 50
-    max_pdf_papers: int = 20  # Only process PDFs for top-N papers (by citation count)
     max_retries: int = 3
     quality_threshold: float = 0.7
     max_pipeline_retries: int = 2  # Per-phase retries for transient errors (2 = 3 total attempts)
