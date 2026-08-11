@@ -108,3 +108,9 @@
 - **验证**：全部 7 个测试通过（0.66s），不依赖网络与真实 LLM
 - **总测试数**：265 → 272
 - **产出**：`tests/test_demo.py`（commit: 70bd705）
+
+### 修复：CI job 名称
+
+- **问题**：CI 中 job 名为 `test`，但课程要求必须命名为 `unit-test`
+- **行动**：将 `.github/workflows/ci.yml` 第 10 行的 `test:` 改为 `unit-test:`
+- **产出**：commit: c9d2cf1
