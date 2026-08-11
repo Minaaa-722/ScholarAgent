@@ -21,10 +21,33 @@ EVIDENCE_CATEGORIES = [
     "architecture", "benchmark", "dataset", "training", "limitation",
 ]
 
-# System prompt for the LLM evidence extraction
+# System prompt for the LLM evidence extraction (single paper)
 _EVIDENCE_SYSTEM_PROMPT = """You are an evidence extraction assistant. Given text chunks from a research paper, extract evidence references that support claims about the paper.
 
 For each piece of evidence, output a JSON object with:
+- "excerpt": The exact text serving as evidence (copy verbatim from the chunk)
+- "category": One of: architecture, benchmark, dataset, training, limitation
+- "page_number": The page number the evidence appears on (integer)
+- "section": The section heading where the evidence appears (string)
+- "source_type": "text", "table", or "figure"
+- "table_id": The table/figure identifier if source_type is table or figure, otherwise ""
+
+Respond with a JSON array of evidence objects. If no evidence is found, respond with an empty array [].
+
+Categories:
+- architecture: model architecture, components, layers, modules
+- benchmark: evaluation results, scores, comparisons
+- dataset: dataset descriptions, statistics, collection methods
+- training: training procedures, hyperparameters, optimization
+- limitation: limitations, drawbacks, failure cases"""
+
+# System prompt for batch extraction (multiple papers)
+_BATCH_EVIDENCE_SYSTEM_PROMPT = """You are an evidence extraction assistant. Given text chunks from multiple research papers, extract evidence references that support claims about the papers.
+
+Each chunk is tagged with [Paper: paper_id] to identify its source paper.
+
+For each piece of evidence, output a JSON object with:
+- "paper_id": The paper_id of the source paper (must match one of the paper_ids in the input tags)
 - "excerpt": The exact text serving as evidence (copy verbatim from the chunk)
 - "category": One of: architecture, benchmark, dataset, training, limitation
 - "page_number": The page number the evidence appears on (integer)
@@ -128,7 +151,8 @@ class EvidenceExtractor:
     """Extract evidence references from PDF chunks using an LLM.
 
     Uses ChunkFilter to pre-filter chunks by category before sending
-    them to the LLM for extraction.
+    them to the LLM for extraction. Supports both single-paper and
+    batch (multi-paper) extraction.
     """
 
     def __init__(
@@ -186,6 +210,141 @@ class EvidenceExtractor:
 
         refs = self._parse_response(response.text, chunks)
         return refs
+
+    # ------------------------------------------------------------------
+    # Batch extraction (multiple papers, single LLM call)
+    # ------------------------------------------------------------------
+
+    def extract_batch(
+        self,
+        paper_chunks: dict[str, list[PDFChunk]],
+        batch_size: int = 5,
+    ) -> dict[str, list[EvidenceReference]]:
+        """Extract evidence from multiple papers in batches.
+
+        Processes papers in batches of `batch_size`, each batch using a
+        single LLM call.  Reduces N LLM calls to ceil(N / batch_size).
+
+        Args:
+            paper_chunks: dict mapping paper_id -> list of PDFChunks.
+            batch_size: Number of papers per LLM call (default 5).
+
+        Returns:
+            dict mapping paper_id -> list of extracted EvidenceReference objects.
+        """
+        if not paper_chunks:
+            return {}
+
+        paper_ids = list(paper_chunks.keys())
+        result: dict[str, list[EvidenceReference]] = {pid: [] for pid in paper_ids}
+
+        # Process in batches
+        for batch_start in range(0, len(paper_ids), batch_size):
+            batch_ids = paper_ids[batch_start:batch_start + batch_size]
+            batch_chunks = {pid: paper_chunks[pid] for pid in batch_ids}
+
+            try:
+                batch_result = self._extract_batch_single(batch_chunks)
+                for pid, refs in batch_result.items():
+                    result[pid] = refs
+            except Exception as e:
+                logger.warning("Batch evidence extraction failed for batch %s: %s", batch_ids, e)
+
+        return result
+
+    def _extract_batch_single(
+        self,
+        paper_chunks: dict[str, list[PDFChunk]],
+    ) -> dict[str, list[EvidenceReference]]:
+        """Run a single batch LLM call for a group of papers."""
+        all_chunk_texts = []
+        for paper_id, chunks in paper_chunks.items():
+            # Filter chunks per paper
+            filtered_ids: set[str] = set()
+            for category in EVIDENCE_CATEGORIES:
+                for c in self._chunk_filter.filter(chunks, category):
+                    filtered_ids.add(c.chunk_id)
+
+            chunks_to_process = [c for c in chunks if c.chunk_id in filtered_ids]
+            if not chunks_to_process:
+                chunks_to_process = chunks  # fallback
+
+            chunk_texts = []
+            for c in chunks_to_process:
+                chunk_texts.append(
+                    f"[Paper: {paper_id} | Page {c.page_number} | Section: {c.section or '(unknown)'}]\n"
+                    f"{c.content[:2000]}"
+                )
+            all_chunk_texts.append("\n\n".join(chunk_texts))
+
+        user_message = "\n\n=======\n\n".join(all_chunk_texts)
+
+        response = self._llm.generate(
+            system_prompt=_BATCH_EVIDENCE_SYSTEM_PROMPT,
+            user_message=user_message,
+        )
+
+        return self._parse_batch_response(response.text, paper_chunks)
+
+    def _parse_batch_response(
+        self,
+        text: str,
+        paper_chunks: dict[str, list[PDFChunk]],
+    ) -> dict[str, list[EvidenceReference]]:
+        """Parse LLM batch response into per-paper EvidenceReference lists."""
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+            cleaned = re.sub(r"\s*```$", "", cleaned)
+
+        try:
+            data = json.loads(cleaned)
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse batch evidence JSON: %.200s", text)
+            return {pid: [] for pid in paper_chunks}
+
+        if not isinstance(data, list):
+            return {pid: [] for pid in paper_chunks}
+
+        # Group by paper_id
+        raw_by_paper: dict[str, list[dict]] = {}
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            pid = item.get("paper_id", "")
+            if not pid or pid not in paper_chunks:
+                continue
+            raw_by_paper.setdefault(pid, []).append(item)
+
+        # Build EvidenceReference objects per paper and validate
+        validator = EvidenceReferenceValidator()
+        result: dict[str, list[EvidenceReference]] = {}
+        for pid, items in raw_by_paper.items():
+            chunks = paper_chunks.get(pid, [])
+            refs: list[EvidenceReference] = []
+            for item in items:
+                ref = EvidenceReference(
+                    paper_id=pid,
+                    page_number=item.get("page_number", -1),
+                    section=item.get("section", ""),
+                    source_type=item.get("source_type", "text"),
+                    table_id=item.get("table_id", ""),
+                    excerpt=item.get("excerpt", ""),
+                )
+                refs.append(ref)
+            refs = validator.validate_all(refs, chunks)
+            result[pid] = refs
+
+        # Ensure all paper_ids are present
+        for pid in paper_chunks:
+            if pid not in result:
+                result[pid] = []
+
+        logger.info(
+            "Batch parsed: %d papers, %d total refs",
+            len(result), sum(len(r) for r in result.values()),
+        )
+        return result
 
     # ------------------------------------------------------------------
     # Internal helpers

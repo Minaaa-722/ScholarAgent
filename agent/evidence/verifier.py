@@ -1,4 +1,6 @@
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
 from agent.core.llm import LLMBase
@@ -15,14 +17,19 @@ class ClaimVerifier:
     Uses the existing LLMBase for semantic verification.
     """
 
-    def __init__(self, llm: LLMBase):
+    def __init__(self, llm: LLMBase, max_workers: int = 5):
         self._llm = llm
+        self._max_workers = max_workers
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
     def verify_all(self, store: EvidenceStore, papers: list[dict]) -> int:
         """Verify all unverified claims in the store against paper data.
+
+        Verification is parallelised across papers using a thread pool
+        (each paper's claims are independent).  The EvidenceStore is
+        protected by a lock for thread-safe ``mark_verified()`` calls.
 
         Args:
             store: The EvidenceStore containing claims.
@@ -52,16 +59,26 @@ class ClaimVerifier:
                 no_paper_claims.append(c)
 
         newly_verified = 0
+        _store_lock = threading.Lock()
 
-        # Verify claims with known paper references
-        for paper_id, claims in by_paper.items():
-            paper = paper_map[paper_id]
-            verified_texts = self._verify_batch(claims, paper)
-            if verified_texts:
-                count = store.mark_verified(verified_texts)
-                newly_verified += count
+        # Parallel verification for claims with known paper references
+        if by_paper:
+            with ThreadPoolExecutor(max_workers=self._max_workers) as ex:
+                future_to_paper = {
+                    ex.submit(self._verify_batch, claims, paper_map[pid]): pid
+                    for pid, claims in by_paper.items()
+                }
+                for future in as_completed(future_to_paper):
+                    try:
+                        verified_texts = future.result()
+                        if verified_texts:
+                            with _store_lock:
+                                count = store.mark_verified(verified_texts)
+                                newly_verified += count
+                    except Exception as e:
+                        logger.warning("Parallel claim verification failed: %s", e)
 
-        # For claims without a paper_id, do a lightweight check
+        # For claims without a paper_id, do a lightweight check (serial, fast)
         if no_paper_claims:
             verified_texts = self._lightweight_verify(no_paper_claims)
             if verified_texts:

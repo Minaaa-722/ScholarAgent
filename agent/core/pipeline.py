@@ -3,6 +3,7 @@ import logging
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
@@ -40,6 +41,7 @@ class TaskInfo:
 @dataclass
 class HarnessConfig:
     max_papers: int = 50
+    max_pdf_papers: int = 20  # Only process PDFs for top-N papers (by citation count)
     max_retries: int = 3
     quality_threshold: float = 0.7
     max_pipeline_retries: int = 2
@@ -468,46 +470,42 @@ class PipelineOrchestrator:
             {"queries_total": len(queries), "queries_completed": 0},
         )
 
-        # Search both sources
-        all_results = []
-        for i, q in enumerate(queries):
-            self._emit_progress(
-                "info",
-                f"Searching arXiv with query {i+1}/{len(queries)}: \"{q[:60]}\"",
-            )
-            arxiv_tool = self.tools.get("arxiv_search")
-            if arxiv_tool:
-                arxiv_res = arxiv_tool.execute({
-                    "query": q, "max_results": max(50, self._task.max_papers * 2),
-                })
-                if arxiv_res.success:
-                    papers_count = len(arxiv_res.data.get("papers", []))
-                    self._emit_progress(
-                        "success", f"arXiv: found {papers_count} papers",
-                    )
-                    all_results.append(arxiv_res.data)
-                else:
-                    self._emit_progress("warning", f"arXiv search failed for query: {q[:60]}")
+        # ---- Parallelized search ----
+        max_search = max(50, self._task.max_papers * 2)
+        arxiv_tool = self.tools.get("arxiv_search")
+        ss_tool = self.tools.get("semantic_scholar_search")
 
-            self._emit_progress(
-                "info",
-                f"Searching Semantic Scholar with query {i+1}/{len(queries)}: \"{q[:60]}\"",
-            )
-            ss_tool = self.tools.get("semantic_scholar_search")
-            if ss_tool:
-                ss_res = ss_tool.execute({
-                    "query": q, "max_results": max(50, self._task.max_papers * 2),
-                })
-                if ss_res.success:
-                    papers_count = len(ss_res.data.get("papers", []))
-                    self._emit_progress(
-                        "success", f"Semantic Scholar: found {papers_count} papers",
-                    )
-                    all_results.append(ss_res.data)
-                else:
-                    self._emit_progress("warning", f"Semantic Scholar search failed for query: {q[:60]}")
+        all_results: list[dict] = []
+        _search_lock = threading.Lock()
 
-            time.sleep(0.3)
+        def _search_arxiv(q: str) -> None:
+            if not arxiv_tool:
+                return
+            res = arxiv_tool.execute({"query": q, "max_results": max_search})
+            if res.success:
+                with _search_lock:
+                    all_results.append(res.data)
+
+        def _search_ss(q: str) -> None:
+            if not ss_tool:
+                return
+            res = ss_tool.execute({"query": q, "max_results": max_search})
+            if res.success:
+                with _search_lock:
+                    all_results.append(res.data)
+
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            futures = []
+            for q in queries:
+                futures.append(ex.submit(_search_arxiv, q))
+                futures.append(ex.submit(_search_ss, q))
+            for f in as_completed(futures):
+                f.result()  # catch exceptions
+
+        self._emit_progress(
+            "success", f"Parallel search complete: {len(all_results)} result sets",
+            {"queries_completed": len(queries)},
+        )
 
         # Merge and dedup
         merge_tool = self.tools.get("merge_results")
@@ -537,7 +535,7 @@ class PipelineOrchestrator:
             except Exception as e:
                 _log.debug("Skipping citation registration: %s", e)
 
-        # ---- PDF Download & Evidence Extraction ----
+        # ---- PDF Download & Evidence Extraction (parallel, limited scope) ----
         self._pdf_chunks.clear()
         self._evidence_refs.clear()
         self._evidence_unavailable.clear()
@@ -545,65 +543,82 @@ class PipelineOrchestrator:
         import os
         os.makedirs("output/pdfs", exist_ok=True)
 
-        papers_with_arxiv = [p for p in self._papers if p.get("arxiv_id")]
+        # Only process top-N papers by citation count (most cited = most relevant)
+        pdf_limit = min(self.config.max_pdf_papers, len(self._papers))
+        papers_for_pdf = sorted(
+            self._papers, key=lambda p: p.get("citation_count", 0), reverse=True
+        )[:pdf_limit]
+        papers_with_arxiv = [p for p in papers_for_pdf if p.get("arxiv_id")]
         total_pdfs = len(papers_with_arxiv)
         self._emit_progress(
-            "info", f"Downloading and parsing PDFs ({total_pdfs} papers with arXiv IDs)...",
+            "info",
+            f"Downloading and parsing PDFs for top {total_pdfs} papers "
+            f"(by citation count, limit={self.config.max_pdf_papers})...",
+            {"papers_downloaded": 0, "papers_total": total_pdfs},
         )
 
-        for idx, paper in enumerate(papers_with_arxiv, 1):
+        # Parallel PDF download + parse
+        _pdf_lock = threading.Lock()
+
+        def _process_pdf(paper: dict) -> None:
             arxiv_id = paper.get("arxiv_id", "")
             paper_id = paper.get("paper_id", arxiv_id)
             if not arxiv_id:
-                continue
+                return
 
             pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
             save_path = f"output/pdfs/{arxiv_id}.pdf"
 
-            self._emit_progress(
-                "info",
-                f"Downloading PDF ({idx}/{total_pdfs}): {arxiv_id}",
-                {"papers_downloaded": idx - 1, "papers_total": total_pdfs},
-            )
-
             try:
-                # Download PDF
                 pdf_tool = self.tools.get("pdf_download")
-                if pdf_tool:
-                    dl_res = pdf_tool.execute({"url": pdf_url, "save_path": save_path})
-                    if not dl_res.success:
-                        self._emit_progress(
-                            "warning",
-                            f"PDF download failed for {arxiv_id}: {dl_res.error}",
-                        )
-                        self._evidence_unavailable.add(paper_id)
-                        continue
-                else:
-                    # No PDF download tool available -- skip
-                    continue
+                if not pdf_tool:
+                    return
 
-                # Parse into chunks
+                dl_res = pdf_tool.execute({"url": pdf_url, "save_path": save_path})
+                if not dl_res.success:
+                    with _pdf_lock:
+                        self._evidence_unavailable.add(paper_id)
+                    return
+
                 chunks = self._pdf_parser.parse(paper_id, save_path)
                 if not chunks:
-                    self._emit_progress("warning", f"PDF parsing returned no chunks for {arxiv_id}")
-                    self._evidence_unavailable.add(paper_id)
-                    continue
+                    with _pdf_lock:
+                        self._evidence_unavailable.add(paper_id)
+                    return
 
-                self._pdf_chunks[paper_id] = chunks
-
-                # Extract evidence references
-                refs = self._evidence_extractor.extract(chunks)
-                if refs:
-                    self._evidence_refs.extend(refs)
-                    self._emit_progress(
-                        "success", f"Evidence: {len(refs)} refs extracted from {arxiv_id}",
-                    )
-                else:
-                    self._emit_progress("info", f"Evidence: no refs extracted from {arxiv_id}")
+                with _pdf_lock:
+                    self._pdf_chunks[paper_id] = chunks
 
             except Exception as e:
-                self._emit_progress("warning", f"Evidence extraction failed for {arxiv_id}: {e}")
-                self._evidence_unavailable.add(paper_id)
+                logger.warning("PDF processing failed for %s: %s", arxiv_id, e)
+                with _pdf_lock:
+                    self._evidence_unavailable.add(paper_id)
+
+        with ThreadPoolExecutor(max_workers=5) as ex:
+            futures = [ex.submit(_process_pdf, p) for p in papers_with_arxiv]
+            for f in as_completed(futures):
+                f.result()  # catch exceptions
+
+        downloaded_count = len(self._pdf_chunks)
+        self._emit_progress(
+            "success",
+            f"PDFs: {downloaded_count} papers downloaded and parsed "
+            f"({total_pdfs - downloaded_count} failed)",
+            {"papers_downloaded": downloaded_count, "papers_total": total_pdfs},
+        )
+
+        # Batch evidence extraction (reduces N LLM calls to ceil(N/batch_size))
+        if self._pdf_chunks:
+            self._emit_progress("info", "Extracting evidence from PDFs (batch LLM)...")
+            batch_refs = self._evidence_extractor.extract_batch(
+                dict(self._pdf_chunks), batch_size=5,
+            )
+            for pid, refs in batch_refs.items():
+                self._evidence_refs.extend(refs)
+                if refs:
+                    self._emit_progress(
+                        "success", f"Evidence: {len(refs)} refs extracted from {pid}",
+                    )
 
         # Update metrics with final PDF count
         self._emit_progress(
