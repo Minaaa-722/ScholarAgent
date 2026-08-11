@@ -478,7 +478,7 @@ class PipelineOrchestrator:
             arxiv_tool = self.tools.get("arxiv_search")
             if arxiv_tool:
                 arxiv_res = arxiv_tool.execute({
-                    "query": q, "max_results": max(50, self.config.max_papers * 2),
+                    "query": q, "max_results": max(50, self._task.max_papers * 2),
                 })
                 if arxiv_res.success:
                     papers_count = len(arxiv_res.data.get("papers", []))
@@ -496,7 +496,7 @@ class PipelineOrchestrator:
             ss_tool = self.tools.get("semantic_scholar_search")
             if ss_tool:
                 ss_res = ss_tool.execute({
-                    "query": q, "max_results": max(50, self.config.max_papers * 2),
+                    "query": q, "max_results": max(50, self._task.max_papers * 2),
                 })
                 if ss_res.success:
                     papers_count = len(ss_res.data.get("papers", []))
@@ -525,7 +525,7 @@ class PipelineOrchestrator:
             papers = sorted_res.data.get("papers", papers) if sorted_res.success else papers
         self._emit_progress("success", f"Sorted {len(papers)} papers by citation count")
 
-        self._papers = papers[:self.config.max_papers]
+        self._papers = papers[:self._task.max_papers]
         self._retrieved_queries = queries
 
         # Register papers in CitationStore for citation resolution
