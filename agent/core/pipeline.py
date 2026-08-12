@@ -269,7 +269,7 @@ class PipelineOrchestrator:
         self._safe_transition(AgentState.RETRIEVAL)
         if self._check_interrupted():
             return PipelineResult(status="interrupted", execution_log=self.execution_log)
-        self._check_human_feedback(on_progress)
+        fb = self._check_human_feedback(on_progress)
 
         # ---- Stage 2: RETRIEVAL ----
         self._progress(on_progress, "retrieval", "Searching arXiv and Semantic Scholar?")
@@ -281,7 +281,9 @@ class PipelineOrchestrator:
         self._safe_transition(AgentState.ANALYSIS)
         if self._check_interrupted():
             return PipelineResult(status="interrupted", execution_log=self.execution_log)
-        self._check_human_feedback(on_progress)
+        fb = self._check_human_feedback(on_progress)
+        if fb.get("papers_updated"):
+            papers = list(self._papers)
 
         # ---- Stage 3: ANALYSIS ----
         self._progress(on_progress, "analysis", "Analyzing retrieved papers?")
@@ -291,13 +293,19 @@ class PipelineOrchestrator:
         self._safe_transition(AgentState.WRITING)
         if self._check_interrupted():
             return PipelineResult(status="interrupted", execution_log=self.execution_log)
-        self._check_human_feedback(on_progress)
+        fb = self._check_human_feedback(on_progress)
+        if fb.get("analysis_updated"):
+            analysis = self._analysis
 
         # ---- Stage 4-6: WRITING + VALIDATION loop ----
         rounds = 0
         final_draft = ""
         while rounds <= self.config.max_retries:
-            self._check_human_feedback(on_progress)
+            fb = self._check_human_feedback(on_progress)
+            if fb.get("papers_updated"):
+                papers = list(self._papers)
+            if fb.get("analysis_updated"):
+                analysis = self._analysis
             if self._check_interrupted():
                 return PipelineResult(status="interrupted", execution_log=self.execution_log)
 
@@ -899,6 +907,26 @@ class PipelineOrchestrator:
             {"round": round_num + 1, "total_rounds": self.config.max_retries + 1},
         )
 
+        # Include pending human feedback (expand_section / general) in the prompt
+        human_feedback_instructions = ""
+        if self._pending_expansions:
+            expansions = "\n".join(f"- {e}" for e in self._pending_expansions)
+            human_feedback_instructions += (
+                "\n\n### HUMAN REQUEST: Expand these sections ###\n"
+                f"{expansions}\n"
+                "Please add substantial new content addressing these topics. "
+                "Add new subsections if needed.\n"
+            )
+            self._pending_expansions.clear()
+        if self._pending_revisions:
+            revisions = "\n".join(f"- {r}" for r in self._pending_revisions)
+            human_feedback_instructions += (
+                "\n\n### HUMAN REQUEST: Apply these revisions ###\n"
+                f"{revisions}\n"
+                "Please incorporate these changes into the appropriate sections.\n"
+            )
+            self._pending_revisions.clear()
+
         user_msg = (
             f"Title: A Comprehensive Survey on {topic}\n"
             f"Keywords: {keywords}\n\n"
@@ -907,6 +935,7 @@ class PipelineOrchestrator:
             f"References:\n{ref_text}\n\n"
             f"{evidence_context}\n\n"
             f"{citation_context}\n\n"
+            f"{human_feedback_instructions}\n\n"
             f"Round {round_num + 1} of up to {self.config.max_retries + 1}.\n\n"
             "IMPORTANT: Write the COMPLETE survey paper with all sections. "
             "Each section must have substantive technical content. "
@@ -1093,11 +1122,17 @@ class PipelineOrchestrator:
     # ------------------------------------------------------------------
     # Human feedback handling
     # ------------------------------------------------------------------
-    def _check_human_feedback(self, on_progress: Optional[ProgressCallback]) -> None:
-        """Check and process pending feedback at stage boundaries."""
+    def _check_human_feedback(self, on_progress: Optional[ProgressCallback]) -> dict:
+        """Check and process pending feedback at stage boundaries.
+
+        Returns a dict with flags indicating what changed:
+          - papers_updated: True if papers were supplemented
+          - analysis_updated: True if analysis was re-generated
+        """
+        result: dict = {"papers_updated": False, "analysis_updated": False}
         with self._feedback_lock:
             if not self._feedback_queue:
-                return
+                return result
             feedback = self._feedback_queue.pop(0)
             feedback["status"] = "processing"
             # Append to feedback_history (owned by Harness, referenced via self._feedback_history)
@@ -1120,6 +1155,8 @@ class PipelineOrchestrator:
             self._papers = deduped
             self._progress(on_progress, "analysis", "Re-analyzing with supplemented papers?")
             self._analysis = self._analyze_papers(self._papers)
+            result["papers_updated"] = True
+            result["analysis_updated"] = True
 
         elif feedback["category"] == "expand_section":
             self._pending_expansions.append(feedback["content"])
@@ -1129,6 +1166,7 @@ class PipelineOrchestrator:
 
         feedback["status"] = "applied"
         self._progress(on_progress, "feedback", f"Feedback applied: {short}?")
+        return result
 
     def _supplement_retrieval(self, feedback_content: str) -> list[dict]:
         """Perform additional paper retrieval based on feedback content."""

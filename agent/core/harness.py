@@ -165,8 +165,6 @@ class Harness:
         self._draft_sections: list[dict] = []
         self._validation_scores: dict = {}
         self._retrieved_queries: list[str] = []
-        self._pending_expansions: list[str] = []
-        self._pending_revisions: list[str] = []
 
         # ---- New: ToolRegistry, Guardrails, Memory, Orchestrator ----
         # ToolRegistry — register all tools
@@ -251,8 +249,6 @@ class Harness:
         self._draft_sections = []
         self._validation_scores = {}
         self._retrieved_queries = []
-        self._pending_expansions = []
-        self._pending_revisions = []
         # Reset orchestrator state too
         self._orchestrator.execution_log = []
         self._orchestrator._pipeline_retry_count = 0
@@ -439,8 +435,6 @@ class Harness:
         self._draft_sections = []
         self._validation_scores = {}
         self._retrieved_queries = []
-        self._pending_expansions = []
-        self._pending_revisions = []
 
         # Reset orchestrator state
         self._orchestrator.execution_log = []
@@ -910,73 +904,6 @@ class Harness:
             for r in results
         }
         return results
-
-    # ------------------------------------------------------------------
-    # Human feedback handling
-    # ------------------------------------------------------------------
-    def _check_human_feedback(self, on_progress: Optional[ProgressCallback]) -> None:
-        """检查并处理待处理的反馈（在阶段边界调用）"""
-        with self._feedback_lock:
-            if not self.feedback_queue:
-                return
-            feedback = self.feedback_queue.pop(0)
-            feedback["status"] = "processing"
-            self.feedback_history.append(feedback)
-
-        short = feedback["content"][:60]
-        self._progress(on_progress, "feedback", f"Processing feedback ({feedback['category']}): {short}…")
-
-        if feedback["category"] == "supplement_papers":
-            self._progress(on_progress, "retrieval", f"Supplementing papers: {short}…")
-            new_papers = self._supplement_retrieval(feedback["content"])
-            self._papers.extend(new_papers)
-            # Dedup by title
-            seen_titles = set()
-            deduped = []
-            for p in self._papers:
-                t = (p.get("title") or "").strip().lower()
-                if t and t not in seen_titles:
-                    seen_titles.add(t)
-                    deduped.append(p)
-            self._papers = deduped
-
-            self._progress(on_progress, "analysis", "Re-analyzing with supplemented papers…")
-            self._analysis = self._analyze_papers(self._papers, self._plan)
-
-        elif feedback["category"] == "expand_section":
-            self._pending_expansions.append(feedback["content"])
-
-        elif feedback["category"] == "general":
-            self._pending_revisions.append(feedback["content"])
-
-        feedback["status"] = "applied"
-        self._progress(on_progress, "feedback", f"Feedback applied: {short}…")
-
-    def _supplement_retrieval(self, feedback_content: str) -> list[dict]:
-        """根据反馈内容进行补充检索"""
-        sys_prompt = (
-            "You are a literature search assistant. "
-            "Extract a concise search query from the user's feedback. "
-            "Return ONLY the query, no explanation."
-        )
-        resp = self._safe_llm_call(sys_prompt, feedback_content)
-        query = resp.text.strip().strip('"').strip("'")
-
-        if not query or len(query) > 200:
-            query = feedback_content[:100]
-
-        all_results = []
-        arxiv_res = self._arxiv_search.execute({"query": query, "max_results": 10})
-        if arxiv_res.success:
-            all_results.append(arxiv_res.data)
-
-        ss_res = self._semantic_scholar.execute({"query": query, "max_results": 10})
-        if ss_res.success:
-            all_results.append(ss_res.data)
-
-        time.sleep(0.3)
-        merged = self._merge.execute({"results": all_results})
-        return merged.data.get("papers", []) if merged.success else []
 
     # ------------------------------------------------------------------
     # Error recovery helpers
