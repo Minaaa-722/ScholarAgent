@@ -460,40 +460,85 @@ class PipelineOrchestrator:
         return resp.text
 
     def _retrieve_papers(self) -> list[dict]:
-        """Search arXiv and Semantic Scholar by topic, sorted by citation count.
+        """Search arXiv and Semantic Scholar with LLM-generated queries.
 
-        Strategy: use the topic directly as the search query (no LLM-generated
-        queries, which introduce noise). Search arXiv by title only, and
-        Semantic Scholar sorted by citation count. Merge, re-sort, truncate.
+        Strategy:
+          1. LLM generates 5 specific search queries from the topic + keywords
+          2. Each query searches arXiv (title-only) and Semantic Scholar (citation-sorted)
+          3. Merge + dedup results
+          4. LLM relevance filter removes off-topic papers
+          5. Sort by citation count, truncate to max_papers
+          6. If < 10 papers remain, fallback: keyword-based search with relaxed params
         """
         topic = self._task.topic
         keywords = self._task.keywords or [topic]
         year_start = self.config.year_start
         year_end = self.config.year_end
 
-        # Use the topic as the primary search query
-        primary_query = topic
-        # Add a secondary query with keywords for more coverage
-        if keywords and keywords[0] != topic:
-            secondary_query = f"{topic} {' '.join(keywords[:3])}"
-        else:
-            secondary_query = topic
+        # ---- Phase 1: LLM-generated search queries ----
+        sys_prompt = (
+            "You are a literature search query generator. "
+            "Generate exactly 5 concise search queries to find academic papers for a survey.\n\n"
+            "RULES:\n"
+            "- Each query must be 2-5 words, specific to a technique/method/approach name\n"
+            "- Do NOT use generic words like: deep learning, survey, review, advances, recent, progress\n"
+            "- Be specific: use concrete method names (e.g. 'EfficientNet', 'knowledge distillation', 'model pruning')\n"
+            "- Output exactly one query per line, NO numbering, NO explanation, NO conversational text\n\n"
+            "Example for topic='Efficient Transformer':\n"
+            "attention mechanism optimization\n"
+            "model quantization\n"
+            "knowledge distillation\n"
+            "mobile transformer\n"
+            "edge deployment"
+        )
+        user_msg = (
+            f"Survey topic: {topic}\n"
+            f"Keywords: {', '.join(keywords)}\n\n"
+            f"Generate 5 specific search queries."
+        )
+        resp = self._safe_llm_call(sys_prompt, user_msg)
 
-        queries = [primary_query, secondary_query]
+        # Parse queries with strict filtering
+        raw_lines = resp.text.strip().split("\n")
+        queries = []
+        for line in raw_lines:
+            line = line.strip().strip('"').strip("'").strip("-").strip("*").strip()
+            # Skip conversational lines
+            if (line
+                and len(line) < 100
+                and not line.lower().startswith(("here", "sure", "ok", "i'll", "let", "the", "of course", "note:", "example"))
+                and not line.lower().startswith(("1.", "2.", "3.", "4.", "5."))
+            ):
+                queries.append(line)
+
+        # Supplement if fewer than 3 valid queries
+        if len(queries) < 3:
+            queries = [topic]
+            for kw in keywords[:3]:
+                queries.append(f"{topic} {kw}")
+
+        # Deduplicate queries
+        seen_q = set()
+        unique_queries = []
+        for q in queries:
+            ql = q.lower().strip()
+            if ql not in seen_q:
+                seen_q.add(ql)
+                unique_queries.append(q)
+        queries = unique_queries[:5]
 
         self._emit_progress(
-            "success", f"Searching with {len(queries)} direct queries (no LLM-generated queries)",
+            "success", f"Generated {len(queries)} search queries via LLM",
             {"queries": queries},
         )
 
-        # ---- Search ----
+        # ---- Phase 2: Search both sources for each query ----
         _search_lock = threading.Lock()
         all_results: list[dict] = []
 
         def _search_arxiv(tool, q: str) -> None:
             if not tool:
                 return
-            # Title-only search (ti:) to match papers ABOUT the topic
             res = tool.execute({
                 "query": q, "max_results": max(50, self._task.max_papers * 2),
                 "year_start": year_start, "year_end": year_end,
@@ -506,7 +551,6 @@ class PipelineOrchestrator:
         def _search_ss(tool, q: str) -> None:
             if not tool:
                 return
-            # Sorted by citation count, with min citation filter
             res = tool.execute({
                 "query": q, "max_results": max(50, self._task.max_papers * 2),
                 "year_start": year_start, "year_end": year_end,
@@ -519,12 +563,12 @@ class PipelineOrchestrator:
         arxiv_tool = self.tools.get("arxiv_search")
         ss_tool = self.tools.get("semantic_scholar_search")
 
-        self._emit_progress("info", f"Searching arXiv (title-only) and Semantic Scholar (by citation count)...")
+        self._emit_progress("info", "Searching arXiv (title-only) and Semantic Scholar (by citation count)...")
         for q in queries:
             _search_arxiv(arxiv_tool, q)
             _search_ss(ss_tool, q)
 
-        # ---- Merge & dedup ----
+        # ---- Phase 3: Merge & dedup ----
         merge_tool = self.tools.get("merge_results")
         sort_tool = self.tools.get("sort_by_citation")
         all_papers: list[dict] = []
@@ -535,20 +579,76 @@ class PipelineOrchestrator:
                 all_papers = merged.data.get("papers", [])
 
         self._emit_progress(
-            "success", f"Merged: {len(all_papers)} unique papers",
+            "success", f"Merged: {len(all_papers)} unique papers from {len(queries)} queries",
             {"papers_found": len(all_papers)},
         )
 
-        # ---- Sort by citation count ----
+        # ---- Phase 4: LLM relevance filter (NEW: enabled) ----
+        self._emit_progress("info", "Running LLM relevance filter...")
+        all_papers = self._filter_relevant_papers(all_papers, topic)
+        self._emit_progress(
+            "info", f"After relevance filter: {len(all_papers)} papers",
+            {"papers_after_filter": len(all_papers)},
+        )
+
+        # ---- Phase 5: Sort by citation count ----
         if sort_tool and all_papers:
             sorted_res = sort_tool.execute({"papers": all_papers})
             if sorted_res.success:
                 all_papers = sorted_res.data.get("papers", all_papers)
 
-        self._emit_progress(
-            "success", f"Top papers by citation count: {len(all_papers)} total",
-            {"papers_found": len(all_papers)},
-        )
+        # ---- Phase 6: Fallback if too few papers ----
+        if len(all_papers) < 10:
+            self._emit_progress(
+                "warning",
+                f"Only {len(all_papers)} papers after filtering — running keyword fallback search",
+            )
+            fallback_queries = []
+            for kw in keywords[:3]:
+                fallback_queries.append(f"{topic} {kw}")
+            for q in fallback_queries:
+                _search_ss(ss_tool, q)
+            if merge_tool:
+                merged = merge_tool.execute({"results": list(all_results)})
+                if merged.success:
+                    all_papers = merged.data.get("papers", [])
+            # Re-run relevance filter on expanded set
+            all_papers = self._filter_relevant_papers(all_papers, topic)
+            if sort_tool and all_papers:
+                sorted_res = sort_tool.execute({"papers": all_papers})
+                if sorted_res.success:
+                    all_papers = sorted_res.data.get("papers", all_papers)
+            self._emit_progress(
+                "success", f"After fallback: {len(all_papers)} papers",
+                {"papers_after_fallback": len(all_papers)},
+            )
+
+        # ---- Phase 7: Last-resort fallback if STILL too few ----
+        if len(all_papers) < 5:
+            self._emit_progress(
+                "warning",
+                "Still too few papers — relaxing search constraints (minCitationCount=0, year range 2018-2026)",
+            )
+            # Try with relaxed constraints on Semantic Scholar
+            for q in queries[:2]:
+                if ss_tool:
+                    res = ss_tool.execute({
+                        "query": q, "max_results": 50,
+                        "year_start": 2018, "year_end": year_end,
+                        "min_citation_count": 0,
+                    })
+                    if res.success:
+                        with _search_lock:
+                            all_results.append(res.data)
+            if merge_tool:
+                merged = merge_tool.execute({"results": list(all_results)})
+                if merged.success:
+                    all_papers = merged.data.get("papers", [])
+            all_papers = self._filter_relevant_papers(all_papers, topic)
+            if sort_tool and all_papers:
+                sorted_res = sort_tool.execute({"papers": all_papers})
+                if sorted_res.success:
+                    all_papers = sorted_res.data.get("papers", all_papers)
 
         self._papers = all_papers[:self._task.max_papers]
         self._retrieved_queries = queries
