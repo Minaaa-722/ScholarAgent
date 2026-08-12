@@ -7,27 +7,19 @@ import Card from "../components/Card";
 import Button from "../components/Button";
 
 export default function KnowledgeExplorer() {
-  // Papers state
   const [papers, setPapers] = useState<PaperItem[]>([]);
   const [papersLoading, setPapersLoading] = useState(true);
   const [papersError, setPapersError] = useState<string | null>(null);
-
-  // Graph state
   const [graphNodes, setGraphNodes] = useState<GraphNode[]>([]);
   const [graphLinks, setGraphLinks] = useState<GraphLink[]>([]);
   const [graphLoading, setGraphLoading] = useState(true);
   const [graphError, setGraphError] = useState<string | null>(null);
-
-  // Selection state
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [detailPaper, setDetailPaper] = useState<PaperItem | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
-
-  // Polling ref
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Load data (used both for initial load and polling)
   const loadData = useCallback(async () => {
     try {
       const [paperResp, graphResp] = await Promise.all([
@@ -39,12 +31,10 @@ export default function KnowledgeExplorer() {
       setGraphNodes(graphResp.nodes);
       setGraphLinks(graphResp.links);
       setGraphLoading(false);
-      // Stop polling once we have data
       if (paperResp.papers.length > 0 && pollTimerRef.current) {
         clearInterval(pollTimerRef.current);
         pollTimerRef.current = null;
       }
-      // If no papers yet, start polling every 3s
       if (paperResp.papers.length === 0 && !pollTimerRef.current) {
         pollTimerRef.current = setInterval(loadData, 3000);
       }
@@ -56,7 +46,6 @@ export default function KnowledgeExplorer() {
     }
   }, []);
 
-  // Initial load + polling until papers arrive
   useEffect(() => {
     loadData();
     return () => {
@@ -67,7 +56,6 @@ export default function KnowledgeExplorer() {
     };
   }, [loadData]);
 
-  // Handle paper selection
   const handleSelect = useCallback(async (index: number) => {
     setSelectedIndex(index);
     setDetailLoading(true);
@@ -91,41 +79,51 @@ export default function KnowledgeExplorer() {
 
   return (
     <div>
-      <h2>Knowledge Explorer</h2>
-      <p style={{ color: "var(--color-text-secondary)", marginBottom: "var(--space-lg)", fontSize: "var(--font-size-sm)" }}>
+      <h2 className="page-title">Knowledge Explorer</h2>
+      <p className="text-secondary mb-lg" style={{ fontSize: "var(--font-size-sm)" }}>
         Browse retrieved papers, explore the citation network, and view paper metadata.
       </p>
 
-      {/* Export button */}
       {!papersLoading && papers.length > 0 && (
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "var(--space-md)" }}>
-          <Button onClick={() => window.open("/api/survey/papers/export", "_blank")}>
-            ⬇ Export CSV
-          </Button>
-        </div>
-      )}
+        <>
+          <div className="flex justify-between mb-md" style={{ alignItems: "center" }}>
+            {/* Summary bar */}
+            <div className="flex" style={{ gap: "var(--space-md)", flex: 1 }}>
+              <Card padding="var(--space-sm) var(--space-md)" style={{ flex: 1, textAlign: "center" }}>
+                <div style={{ fontSize: "var(--font-size-xl)", fontWeight: "var(--font-weight-bold)", color: "var(--color-primary)" }}>{papers.length}</div>
+                <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-secondary)" }}>Papers</div>
+              </Card>
+              <Card padding="var(--space-sm) var(--space-md)" style={{ flex: 1, textAlign: "center" }}>
+                <div style={{ fontSize: "var(--font-size-xl)", fontWeight: "var(--font-weight-bold)", color: "var(--color-success)" }}>{graphNodes.length}</div>
+                <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-secondary)" }}>Nodes</div>
+              </Card>
+              <Card padding="var(--space-sm) var(--space-md)" style={{ flex: 1, textAlign: "center" }}>
+                <div style={{ fontSize: "var(--font-size-xl)", fontWeight: "var(--font-weight-bold)", color: "var(--color-warning)" }}>{graphLinks.length}</div>
+                <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-secondary)" }}>Links</div>
+              </Card>
+            </div>
+            <div className="ml-auto hide-mobile">
+              <Button onClick={() => window.open("/api/survey/papers/export", "_blank")}>
+                ⬇ Export CSV
+              </Button>
+            </div>
+          </div>
 
-      {/* Summary bar */}
-      {!papersLoading && papers.length > 0 && (
-        <div style={{ display: "flex", gap: "var(--space-md)", marginBottom: "var(--space-lg)" }}>
-          <Card padding="var(--space-sm) var(--space-md)" style={{ flex: 1, textAlign: "center" }}>
-            <div style={{ fontSize: "var(--font-size-xl)", fontWeight: "var(--font-weight-bold)", color: "var(--color-primary)" }}>{papers.length}</div>
-            <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-secondary)" }}>Papers</div>
-          </Card>
-          <Card padding="var(--space-sm) var(--space-md)" style={{ flex: 1, textAlign: "center" }}>
-            <div style={{ fontSize: "var(--font-size-xl)", fontWeight: "var(--font-weight-bold)", color: "var(--color-success)" }}>{graphNodes.length}</div>
-            <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-secondary)" }}>Graph Nodes</div>
-          </Card>
-          <Card padding="var(--space-sm) var(--space-md)" style={{ flex: 1, textAlign: "center" }}>
-            <div style={{ fontSize: "var(--font-size-xl)", fontWeight: "var(--font-weight-bold)", color: "var(--color-warning)" }}>{graphLinks.length}</div>
-            <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-secondary)" }}>Connections</div>
-          </Card>
-        </div>
+          {/* Mobile export */}
+          <div className="hide-desktop mb-md" style={{ display: "flex", justifyContent: "flex-end" }}>
+            <Button size="sm" onClick={() => window.open("/api/survey/papers/export", "_blank")}>
+              ⬇ Export CSV
+            </Button>
+          </div>
+        </>
       )}
 
       {/* Three-column layout */}
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 2fr 1.5fr", gap: "var(--space-lg)", alignItems: "start" }}>
-        {/* Left: Paper Table */}
+      <div className="knowledge-grid" style={{
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 2fr) minmax(0, 2fr) minmax(0, 1.5fr)",
+        gap: "var(--space-lg)", alignItems: "start",
+      }}>
         <PaperTable
           papers={papers}
           loading={papersLoading}
@@ -133,8 +131,6 @@ export default function KnowledgeExplorer() {
           onSelect={handleSelect}
           selectedIndex={selectedIndex}
         />
-
-        {/* Center: Citation Graph */}
         <PaperGraph
           nodes={graphNodes}
           links={graphLinks}
@@ -143,8 +139,6 @@ export default function KnowledgeExplorer() {
           onSelect={handleSelect}
           selectedId={selectedIndex}
         />
-
-        {/* Right: Paper Detail */}
         <PaperDetail
           paper={detailPaper}
           loading={detailLoading}
@@ -152,6 +146,16 @@ export default function KnowledgeExplorer() {
           onClose={handleCloseDetail}
         />
       </div>
+
+      {/* Responsive: collapse to single column on mobile */}
+      <style>{`
+        @media (max-width: 1024px) {
+          .knowledge-grid { grid-template-columns: 1fr 1fr !important; }
+        }
+        @media (max-width: 640px) {
+          .knowledge-grid { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
     </div>
   );
 }

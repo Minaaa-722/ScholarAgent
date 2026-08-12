@@ -36,13 +36,16 @@ export default function Button({
         display: "inline-flex", alignItems: "center", gap: "0.4rem",
         opacity: (disabled && !loading) ? 0.5 : 1,
         transition: "all var(--transition-fast)",
+        whiteSpace: "nowrap",
         ...VARIANT_STYLES[variant],
         ...SIZE_STYLES[size],
         ...style,
       }}
       {...rest}
     >
-      {loading ? "⟳ " : icon ? `${icon} ` : ""}{children}
+      {loading && <span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span>}
+      {!loading && icon && <span>{icon}</span>}
+      {children}
     </button>
   );
 }

@@ -272,7 +272,7 @@ function StageArtifact({
                     style={{
                       padding: "0.6rem",
                       marginBottom: "0.4rem",
-                      background: "#fafafa",
+                      background: "var(--color-bg-card)",
                       borderRadius: "var(--radius-md)",
                       border: "1px solid var(--color-border-light)",
                     }}
@@ -750,7 +750,7 @@ function StageEntry({
       ? "var(--color-success)"
       : status === "active"
         ? "var(--color-primary)"
-        : "#ccc";
+        : "var(--color-border)";
 
   const dotIcon =
     status === "completed" ? "✓" : status === "active" ? "▶" : "○";
@@ -760,7 +760,7 @@ function StageEntry({
       ? "var(--color-success)"
       : status === "active"
         ? "var(--color-primary)"
-        : "#e0e0e0";
+        : "var(--color-border-light)";
 
   return (
     <div

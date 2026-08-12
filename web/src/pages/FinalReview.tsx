@@ -282,7 +282,7 @@ export default function FinalReview() {
                 onClick={() => toggleSection(s.title)}
                 style={{
                   padding: "0.6rem 0.8rem", borderRadius: "var(--radius-md)",
-                  background: expandedSections.has(s.title) ? "var(--color-primary-light)" : "#fafafa",
+                  background: expandedSections.has(s.title) ? "var(--color-primary-light)" : "var(--color-bg-card)",
                   border: "1px solid var(--color-border-light)",
                   cursor: "pointer", fontWeight: 600, fontSize: "var(--font-size-sm)",
                   display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -295,7 +295,7 @@ export default function FinalReview() {
               {expandedSections.has(s.title) && (
                 <div style={{
                   padding: "0.8rem", marginTop: "0.3rem", borderRadius: "var(--radius-md)",
-                  background: "#fafafa", border: "1px solid var(--color-border-light)",
+                  background: "var(--color-bg-card)", border: "1px solid var(--color-border-light)",
                   fontFamily: "'Times New Roman', Times, serif",
                   fontSize: "var(--font-size-sm)", lineHeight: 1.6, whiteSpace: "pre-wrap",
                   maxHeight: 400, overflowY: "auto",

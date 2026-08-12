@@ -7,7 +7,7 @@ const BADGE_COLORS: Record<BadgeColor, { bg: string; text: string }> = {
   red: { bg: "var(--color-danger-light)", text: "var(--color-danger-dark)" },
   orange: { bg: "var(--color-warning-light)", text: "var(--color-warning-dark)" },
   blue: { bg: "var(--color-primary-light)", text: "var(--color-primary-dark)" },
-  gray: { bg: "#e0e0e0", text: "#666" },
+  gray: { bg: "var(--color-border)", text: "var(--color-text-tertiary)" },
 };
 
 interface BadgeProps {
@@ -19,13 +19,14 @@ interface BadgeProps {
 export default function Badge({ color = "gray", dot, children }: BadgeProps) {
   const c = BADGE_COLORS[color];
   return (
-    <span style={{
-      display: "inline-flex", alignItems: "center", gap: "0.3rem",
+    <span className="flex items-center" style={{
+      gap: "0.3rem",
       background: c.bg, color: c.text,
       padding: "0.15rem 0.5rem", borderRadius: "var(--radius-sm)",
       fontSize: "var(--font-size-xs)", fontWeight: "var(--font-weight-semibold)",
+      lineHeight: "1.4",
     }}>
-      {dot && <span style={{ width: 6, height: 6, borderRadius: "50%", background: c.text, display: "inline-block" }} />}
+      {dot && <span style={{ width: 6, height: 6, borderRadius: "50%", background: c.text, display: "inline-block", flexShrink: 0 }} />}
       {children}
     </span>
   );

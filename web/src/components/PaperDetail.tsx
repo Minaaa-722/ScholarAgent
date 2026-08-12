@@ -17,11 +17,18 @@ const SOURCE_BADGE_COLOR: Record<string, "blue" | "green" | "gray"> = {
   semantic_scholar: "green",
 };
 
+const CLOSE_BTN_STYLE: React.CSSProperties = {
+  background: "none", border: "none", cursor: "pointer",
+  fontSize: "1.3rem", color: "var(--color-text-tertiary)",
+  padding: "0.2rem", lineHeight: 1, borderRadius: "var(--radius-sm)",
+  transition: "color var(--transition-fast)",
+};
+
 export default function PaperDetail({ paper, loading, error, onClose }: PaperDetailProps) {
   if (loading) {
     return (
       <Card title="Paper Details" headerRight={
-        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.2rem", color: "var(--color-text-disabled)" }}>×</button>
+        <button onClick={onClose} style={CLOSE_BTN_STYLE}>×</button>
       }>
         <LoadingSkeleton variant="card" lines={6} />
       </Card>
@@ -31,7 +38,7 @@ export default function PaperDetail({ paper, loading, error, onClose }: PaperDet
   if (error) {
     return (
       <Card title="Paper Details" borderColor="var(--color-danger)" headerRight={
-        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.2rem", color: "var(--color-text-disabled)" }}>×</button>
+        <button onClick={onClose} style={CLOSE_BTN_STYLE}>×</button>
       }>
         <p style={{ color: "var(--color-danger)" }}>Error: {error}</p>
       </Card>
@@ -52,43 +59,38 @@ export default function PaperDetail({ paper, loading, error, onClose }: PaperDet
     <Card
       title="Paper Details"
       headerRight={
-        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.2rem", color: "var(--color-text-disabled)" }}>
-          ×
-        </button>
+        <button onClick={onClose} style={CLOSE_BTN_STYLE}>×</button>
       }
       borderColor="var(--color-primary)"
     >
-      <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)" }}>
-        {/* Title */}
+      <div className="flex flex-col" style={{ gap: "var(--space-md)" }}>
         <div>
-          <h4 style={{ margin: "0 0 var(--space-xs)", fontSize: "var(--font-size-md)", color: "var(--color-text-primary)", lineHeight: 1.4 }}>
+          <h4 style={{ margin: "0 0 var(--space-xs)", fontSize: "var(--font-size-md)", lineHeight: 1.4 }}>
             {paper.title}
           </h4>
         </div>
 
-        {/* Metadata grid */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-sm)" }}>
+        <div className="grid-2" style={{ gap: "var(--space-sm)" }}>
           <div>
-            <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-disabled)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.15rem" }}>Authors</div>
-            <div style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-primary)" }}>{paper.authors}</div>
+            <div className="text-tertiary" style={{ fontSize: "var(--font-size-xs)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.15rem" }}>Authors</div>
+            <div style={{ fontSize: "var(--font-size-sm)" }}>{paper.authors}</div>
           </div>
           <div>
-            <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-disabled)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.15rem" }}>Year</div>
-            <div style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-primary)" }}>{paper.year || "—"}</div>
+            <div className="text-tertiary" style={{ fontSize: "var(--font-size-xs)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.15rem" }}>Year</div>
+            <div style={{ fontSize: "var(--font-size-sm)" }}>{paper.year || "—"}</div>
           </div>
           <div>
-            <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-disabled)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.15rem" }}>Citations</div>
-            <div style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-primary)", fontWeight: "var(--font-weight-semibold)" }}>{paper.citations}</div>
+            <div className="text-tertiary" style={{ fontSize: "var(--font-size-xs)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.15rem" }}>Citations</div>
+            <div style={{ fontSize: "var(--font-size-sm)", fontWeight: "var(--font-weight-semibold)" }}>{paper.citations}</div>
           </div>
           <div>
-            <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-disabled)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.15rem" }}>Source</div>
+            <div className="text-tertiary" style={{ fontSize: "var(--font-size-xs)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.15rem" }}>Source</div>
             <Badge color={sourceColor}>{paper.source}</Badge>
           </div>
         </div>
 
-        {/* Index reference */}
         {paper.paper_index != null && (
-          <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-disabled)" }}>
+          <div className="text-tertiary" style={{ fontSize: "var(--font-size-xs)" }}>
             Paper #{paper.paper_index + 1} of the retrieved set
           </div>
         )}

@@ -27,9 +27,9 @@ interface PaperGraphProps {
 }
 
 const GROUP_COLORS: Record<string, string> = {
-  arxiv: "#1976d2",
-  semantic_scholar: "#4caf50",
-  unknown: "#999",
+  arxiv: "#2563eb",
+  semantic_scholar: "#16a34a",
+  unknown: "#94a3b8",
 };
 
 export default function PaperGraph({ nodes, links, loading, error, onSelect, selectedId }: PaperGraphProps) {
@@ -77,14 +77,14 @@ export default function PaperGraph({ nodes, links, loading, error, onSelect, sel
       .force("collision", d3.forceCollide<GraphNode>().radius(d => d.size * 0.5 + 10));
 
     const link = g.append("g").selectAll("line").data(links).join("line")
-      .attr("stroke", "#ccc")
+      .attr("stroke", "var(--color-border)")
       .attr("stroke-width", d => Math.max(1, d.weight))
       .attr("stroke-opacity", 0.6);
 
     const node = g.append("g").selectAll("circle").data(nodes).join("circle")
       .attr("r", d => Math.max(5, Math.min(d.size * 0.5 + 5, 30)))
       .attr("fill", d => color(d))
-      .attr("stroke", d => d.id === selectedId ? "#fff" : "none")
+      .attr("stroke", d => d.id === selectedId ? "var(--color-bg-card)" : "none")
       .attr("stroke-width", d => d.id === selectedId ? 3 : 0)
       .attr("cursor", "pointer")
       .on("click", (_event, d) => onSelect(d.id))
@@ -148,12 +148,12 @@ export default function PaperGraph({ nodes, links, loading, error, onSelect, sel
           ref={svgRef}
           width={dimensions.width}
           height={dimensions.height}
-          style={{ display: "block", background: "#fafafa", borderRadius: "var(--radius-md)" }}
+          style={{ display: "block", background: "var(--color-bg-elevated)", borderRadius: "var(--radius-md)" }}
         />
         {hoveredNode && (
           <div style={{
             position: "absolute", bottom: "var(--space-sm)", left: "var(--space-sm)",
-            background: "rgba(0,0,0,0.8)", color: "#fff",
+            background: "var(--color-bg-tooltip)", color: "#fff",
             padding: "var(--space-xs) var(--space-sm)", borderRadius: "var(--radius-sm)",
             fontSize: "var(--font-size-xs)", maxWidth: "80%", pointerEvents: "none",
           }}>
@@ -163,20 +163,21 @@ export default function PaperGraph({ nodes, links, loading, error, onSelect, sel
         )}
         <div style={{
           position: "absolute", top: "var(--space-sm)", right: "var(--space-sm)",
-          background: "rgba(255,255,255,0.9)", padding: "var(--space-xs) var(--space-sm)",
+          background: "var(--color-bg-card)", padding: "var(--space-xs) var(--space-sm)",
           borderRadius: "var(--radius-sm)", fontSize: "var(--font-size-xs)",
           display: "flex", flexDirection: "column", gap: "0.15rem",
+          boxShadow: "var(--shadow-xs)",
         }}>
           {Object.entries(GROUP_COLORS).map(([key, color]) => (
-            <div key={key} style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
-              <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, display: "inline-block" }} />
+            <div key={key} className="flex items-center" style={{ gap: "0.3rem" }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, display: "inline-block", flexShrink: 0 }} />
               {key === "semantic_scholar" ? "Semantic Scholar" : key.charAt(0).toUpperCase() + key.slice(1)}
             </div>
           ))}
         </div>
         <div style={{
           position: "absolute", bottom: "var(--space-sm)", right: "var(--space-sm)",
-          color: "var(--color-text-disabled)", fontSize: "var(--font-size-xs)",
+          color: "var(--color-text-tertiary)", fontSize: "var(--font-size-xs)",
         }}>
           Scroll to zoom · Drag to pan
         </div>

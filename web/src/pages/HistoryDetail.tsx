@@ -215,7 +215,7 @@ export default function HistoryDetail() {
                 style={{
                   padding: "0.6rem 0.8rem",
                   borderRadius: "var(--radius-md)",
-                  background: expandedSections.has(s.title) ? "var(--color-primary-light)" : "#fafafa",
+                  background: expandedSections.has(s.title) ? "var(--color-primary-light)" : "var(--color-bg-card)",
                   border: "1px solid var(--color-border-light)",
                   cursor: "pointer",
                   fontWeight: 600,
@@ -235,7 +235,7 @@ export default function HistoryDetail() {
                     padding: "0.8rem",
                     marginTop: "0.3rem",
                     borderRadius: "var(--radius-md)",
-                    background: "#fafafa",
+                    background: "var(--color-bg-card)",
                     border: "1px solid var(--color-border-light)",
                     fontFamily: "'Times New Roman', Times, serif",
                     fontSize: "var(--font-size-sm)",

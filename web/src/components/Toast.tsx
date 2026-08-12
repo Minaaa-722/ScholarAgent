@@ -39,7 +39,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={{ showToast }}>
       {children}
-      <div style={{ position: "fixed", top: 16, right: 16, zIndex: 9999, display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{
+        position: "fixed", top: 16, right: 16, zIndex: "var(--z-toast)",
+        display: "flex", flexDirection: "column", gap: 8, pointerEvents: "none",
+      }}>
         {toasts.map(toast => (
           <ToastItem key={toast.id} toast={toast} onDismiss={() => removeToast(toast.id)} />
         ))}
@@ -57,14 +60,20 @@ function ToastItem({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => vo
   }, [onDismiss]);
 
   return (
-    <div style={{
-      background: c.bg, borderLeft: `4px solid ${c.border}`,
-      borderRadius: "var(--radius-md)", padding: "0.8rem 1rem",
-      boxShadow: "var(--shadow-md)", minWidth: 280, maxWidth: 400,
-      display: "flex", alignItems: "center", gap: "0.5rem",
-      cursor: "pointer", animation: "slideIn 0.3s ease",
-    }} onClick={onDismiss}>
-      <span>{c.icon}</span>
+    <div
+      onClick={onDismiss}
+      role="alert"
+      style={{
+        background: c.bg, borderLeft: `4px solid ${c.border}`,
+        borderRadius: "var(--radius-md)", padding: "0.8rem 1rem",
+        boxShadow: "var(--shadow-md)", minWidth: 280, maxWidth: 400,
+        display: "flex", alignItems: "center", gap: "0.5rem",
+        cursor: "pointer", pointerEvents: "auto",
+        animation: "slideIn 0.3s ease",
+        transition: "opacity var(--transition-fast)",
+      }}
+    >
+      <span style={{ flexShrink: 0 }}>{c.icon}</span>
       <span style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-primary)" }}>{toast.message}</span>
     </div>
   );

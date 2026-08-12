@@ -107,13 +107,12 @@ export default function PaperTable({ papers, loading, error, onSelect, selectedI
             borderRadius: "var(--radius-md)",
             fontSize: "var(--font-size-sm)",
             boxSizing: "border-box",
-            outline: "none",
           }}
         />
       </div>
 
       {/* Sortable column headers */}
-      <div style={{
+      <div className="table-header" style={{
         display: "grid",
         gridTemplateColumns: "3fr 1fr 1fr 1fr",
         gap: "var(--space-sm)",
@@ -129,11 +128,10 @@ export default function PaperTable({ papers, loading, error, onSelect, selectedI
           <div
             key={key}
             onClick={() => handleSort(key)}
+            className="flex items-center"
             style={{
               cursor: "pointer",
               userSelect: "none",
-              display: "flex",
-              alignItems: "center",
               gap: "0.25rem",
               color: sortKey === key ? "var(--color-primary)" : undefined,
             }}
@@ -160,6 +158,7 @@ export default function PaperTable({ papers, loading, error, onSelect, selectedI
               <div
                 key={p.paper_index}
                 onClick={() => onSelect(p.paper_index)}
+                className="paper-row"
                 style={{
                   display: "grid",
                   gridTemplateColumns: "3fr 1fr 1fr 1fr",
@@ -167,12 +166,10 @@ export default function PaperTable({ papers, loading, error, onSelect, selectedI
                   padding: "var(--space-sm) var(--space-md)",
                   borderBottom: "1px solid var(--color-border-light)",
                   cursor: "pointer",
-                  background: isSelected ? "var(--color-primary-light)" : undefined,
+                  background: isSelected ? "var(--color-primary-light)" : "transparent",
                   transition: "background var(--transition-fast)",
                   fontSize: "var(--font-size-sm)",
                 }}
-                onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = "#fafafa"; }}
-                onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = ""; }}
               >
                 <div>
                   <div style={{ fontWeight: "var(--font-weight-semibold)", color: "var(--color-text-primary)", marginBottom: "0.15rem" }}>
@@ -192,6 +189,10 @@ export default function PaperTable({ papers, loading, error, onSelect, selectedI
           })
         )}
       </div>
+
+      <style>{`
+        .paper-row:hover { background: var(--color-border-light) !important; }
+      `}</style>
     </Card>
   );
 }

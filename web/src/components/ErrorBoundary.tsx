@@ -18,10 +18,10 @@ export default class ErrorBoundary extends React.Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{ padding: "var(--space-xl)", textAlign: "center" }}>
-          <div style={{ fontSize: "3rem", marginBottom: "var(--space-md)" }}>⚠</div>
+        <div className="flex flex-col items-center" style={{ padding: "var(--space-3xl)", animation: "fadeIn 0.3s ease" }}>
+          <div style={{ fontSize: "3rem", marginBottom: "var(--space-md)", lineHeight: 1 }}>⚠</div>
           <h2 style={{ color: "var(--color-danger-dark)" }}>Something went wrong</h2>
-          <p style={{ color: "var(--color-text-secondary)", margin: "var(--space-sm) 0 var(--space-lg)" }}>
+          <p className="text-secondary" style={{ margin: "var(--space-sm) 0 var(--space-lg)" }}>
             {this.state.error?.message || "An unexpected error occurred"}
           </p>
           <Button variant="primary" onClick={this.handleRetry}>Try Again</Button>
