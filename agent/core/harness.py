@@ -225,7 +225,17 @@ class Harness:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def start(self, topic: str, keywords: str = "", goal: str = "", max_papers: Optional[int] = None) -> None:
+    def start(
+        self, topic: str, keywords: str = "", goal: str = "",
+        max_papers: Optional[int] = None,
+        year_start: Optional[int] = None, year_end: Optional[int] = None,
+    ) -> None:
+        # Override config year range if provided
+        if year_start is not None:
+            self.config.year_start = year_start
+        if year_end is not None:
+            self.config.year_end = year_end
+
         self.task = TaskInfo(
             topic=topic,
             keywords=[k.strip() for k in keywords.split(",") if k.strip()],
@@ -487,6 +497,8 @@ class Harness:
         goal: str = "",
         max_papers: Optional[int] = None,
         on_progress: Optional[ProgressCallback] = None,
+        year_start: Optional[int] = None,
+        year_end: Optional[int] = None,
     ) -> dict:
         """Run the full survey-generation pipeline end-to-end.
 
@@ -498,7 +510,7 @@ class Harness:
           - error: error message if status is "error"
         """
         try:
-            self.start(topic, keywords, goal, max_papers)
+            self.start(topic, keywords, goal, max_papers, year_start, year_end)
             return self._pipeline(on_progress)
         except Exception as e:
             logger.exception("Pipeline failed with fatal error")
@@ -517,6 +529,8 @@ class Harness:
         goal: str = "",
         max_papers: Optional[int] = None,
         on_progress: Optional[ProgressCallback] = None,
+        year_start: Optional[int] = None,
+        year_end: Optional[int] = None,
     ) -> None:
         """Run the pipeline in a background thread."""
         self._pipeline_generation += 1
@@ -527,7 +541,7 @@ class Harness:
 
         def _target():
             try:
-                self.last_result = self.run(topic, keywords, goal, max_papers, on_progress)
+                self.last_result = self.run(topic, keywords, goal, max_papers, on_progress, year_start, year_end)
             finally:
                 # Only clear pipeline_running if we're still the current
                 # generation — otherwise a stale thread from a cancelled
@@ -977,6 +991,8 @@ class Harness:
             topic=self.task.topic,
             keywords=", ".join(self.task.keywords),
             goal=self.task.goal,
+            year_start=self.config.year_start,
+            year_end=self.config.year_end,
         )
 
     @staticmethod

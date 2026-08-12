@@ -6,6 +6,8 @@ class SurveyRequest(BaseModel):
     keywords: str = ""
     goal: str = ""
     max_papers: int = 50
+    year_start: int = 0
+    year_end: int = 0
 
 
 class SurveyResponse(BaseModel):
