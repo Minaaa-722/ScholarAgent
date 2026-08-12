@@ -280,24 +280,25 @@ class PipelineOrchestrator:
             lambda: self._retrieve_papers(), AgentState.RETRIEVAL, on_progress)
         # Apply guardrail: filter papers
         papers = self._guardrails.filter_papers(papers)
-        # Sync guardrail-filtered list back to self._papers so feedback
-        # processing later sees the same set as the local variable.
-        self._papers = list(papers)
+        # NOTE: self._papers is intentionally NOT updated to the guardrail-filtered
+        # list here — _retrieve_papers() set it to the full unfiltered result, and
+        # the original code kept it that way.  The local `papers` variable carries
+        # the filtered list forward for analysis; self._papers is used for the
+        # reference list and citation store.
 
         # Merge feedback-supplemented papers (added before retrieval) into
-        # the retrieval results, so they survive the _retrieve_papers overwrite.
+        # self._papers, so they survive the _retrieve_papers overwrite.
         if feedback_papers:
-            seen_titles = set(p.get("title", "").strip().lower() for p in papers if p.get("title"))
+            seen_titles = set(p.get("title", "").strip().lower() for p in self._papers if p.get("title"))
             for p in feedback_papers:
                 t = p.get("title", "").strip().lower()
                 if t and t not in seen_titles:
-                    papers.append(p)
+                    self._papers.append(p)
                     seen_titles.add(t)
-            self._papers = list(papers)
             self._emit_progress(
                 "info",
                 f"Merged {len(feedback_papers)} feedback-supplemented papers "
-                f"into retrieval results ({len(papers)} total)",
+                f"into retrieval results ({len(self._papers)} total)",
             )
 
         self._log("RETRIEVAL", {"paper_count": len(papers)})
