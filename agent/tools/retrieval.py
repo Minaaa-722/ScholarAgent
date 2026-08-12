@@ -24,12 +24,30 @@ class ArxivSearch(Tool):
     def execute(self, params: dict) -> ToolResult:
         query = params.get("query", "").strip()
         max_results = min(params.get("max_results", 20), 100)
+        year_start = params.get("year_start", 0)
+        year_end = params.get("year_end", 0)
 
         if not query:
             return ToolResult(success=False, error="query is required")
 
+        # Build search query with optional filters
+        search_parts = [f"all:{urllib.parse.quote(query)}"]
+
+        # Add arXiv category filter (cs.CV = computer vision)
+        search_parts.append("cat:cs.CV")
+
+        # Add year range filter
+        if year_start and year_end:
+            start_str = f"{year_start}0101"
+            end_str = f"{year_end}1231"
+            search_parts.append(
+                f"last_updated_date:[{start_str}+TO+{end_str}]"
+            )
+
+        search_query = "+AND+".join(search_parts)
+
         url = (
-            f"{ARXIV_API_URL}?search_query=all:{urllib.parse.quote(query)}"
+            f"{ARXIV_API_URL}?search_query={search_query}"
             f"&max_results={max_results}&sortBy=relevance&sortOrder=descending"
         )
 
@@ -129,6 +147,8 @@ class SemanticScholarSearch(Tool):
     def execute(self, params: dict) -> ToolResult:
         query = params.get("query", "").strip()
         limit = min(params.get("max_results", 20), 100)
+        year_start = params.get("year_start", 0)
+        year_end = params.get("year_end", 0)
 
         if not query:
             return ToolResult(success=False, error="query is required")
@@ -141,7 +161,11 @@ class SemanticScholarSearch(Tool):
         url = (
             f"{SEMANTIC_SCHOLAR_API_URL}?query={urllib.parse.quote(query)}"
             f"&limit={limit}&fields={fields}"
+            f"&sortBy=citationCount"
+            f"&fieldsOfStudy=Computer Science"
         )
+        if year_start and year_end:
+            url += f"&year={year_start}-{year_end}"
 
         # Retry with backoff for rate limiting (429)
         max_attempts = 3

@@ -460,21 +460,40 @@ class PipelineOrchestrator:
         return resp.text
 
     def _retrieve_papers(self) -> list[dict]:
-        """Search arXiv and Semantic Scholar, merge and dedup results."""
+        """Search arXiv and Semantic Scholar, merge and dedup results.
+
+        Two-phase retrieval:
+          Phase 1 - Search for survey/review papers, then fetch their references
+          Phase 2 - Search for method/benchmark/direction-specific papers
+        """
         topic = self._task.topic
         keywords = self._task.keywords or [topic]
+        year_start = self.config.year_start
+        year_end = self.config.year_end
 
-        # Generate search queries via LLM, with robust parsing
+        # ---- Generate multi-strategy queries ----
         sys_prompt = (
-            "You are a literature search assistant. "
-            "Generate exactly 3 concise search queries to find papers for a survey. "
-            "Return ONLY the 3 queries, one per line, no numbering, no explanation."
+            "You are a literature search strategist. "
+            "Generate search queries for a survey on the given topic. "
+            "Produce exactly 4 queries, one per line, no numbering, no explanation.\n"
+            "Strategy 1 — Survey/review: find comprehensive survey papers.\n"
+            "Strategy 2 — Method + benchmark: find papers using standard benchmarks.\n"
+            "Strategy 3 — Specific technique: find papers using modern methods.\n"
+            "Strategy 4 — Sub-direction: find papers in a specific sub-area.\n"
+            "Example for 'edge detection':\n"
+            "edge detection survey deep learning\n"
+            "edge detection BSDS500 benchmark\n"
+            "edge detection transformer\n"
+            "edge detection self-supervised"
         )
-        user_msg = f"Survey topic: {topic}\nKeywords: {', '.join(keywords)}\n\nGenerate 3 search queries."
+        user_msg = (
+            f"Survey topic: {topic}\n"
+            f"Keywords: {', '.join(keywords)}\n"
+            f"Time range: {year_start}–{year_end}\n\n"
+            "Generate 4 search queries (one per strategy)."
+        )
 
-        # Guardrail: rate limit check
         self._guardrails.check_tool_call("llm_generate", {"prompt": user_msg})
-
         resp = self._safe_llm_call(sys_prompt, user_msg, use_tools=True)
 
         # Parse queries
@@ -485,77 +504,142 @@ class PipelineOrchestrator:
             if (line
                 and len(line) < 200
                 and not line.lower().startswith(("here", "sure", "ok", "i'll", "let", "the", "for", "of course"))
-                and not line.startswith(("1.", "2.", "3.", "-", "*"))
+                and not line.startswith(("1.", "2.", "3.", "4.", "-", "*"))
             ):
                 queries.append(line)
 
-        if len(queries) < 1:
-            queries = [topic]
-        if len(queries) < 2:
-            queries.append(f"{topic} survey")
-        if len(queries) < 3:
-            queries.append(f"{' '.join(keywords[:3])}")
+        # Fallback: ensure we have survey queries and method queries
+        strategy_queries = []
+        has_survey = any("survey" in q.lower() or "review" in q.lower() for q in queries)
+        if has_survey:
+            survey_queries = [q for q in queries if "survey" in q.lower() or "review" in q.lower()]
+            method_queries = [q for q in queries if q not in survey_queries]
+        else:
+            survey_queries = [f"{topic} survey"]
+            method_queries = queries if queries else [topic]
+
+        if not method_queries:
+            method_queries = [topic, f"{topic} {' '.join(keywords[:3])}"]
 
         self._emit_progress(
-            "success", f"Generated {len(queries)} search queries",
-            {"queries_total": len(queries), "queries_completed": 0},
+            "success", f"Generated {len(survey_queries)} survey + {len(method_queries)} method queries",
+            {
+                "queries_total": len(survey_queries) + len(method_queries),
+                "survey_queries": len(survey_queries),
+                "method_queries": len(method_queries),
+            },
         )
 
-        # ---- Parallelized search ----
-        max_search = max(50, self._task.max_papers * 2)
+        # ---- Helper: search a single query ----
+        _search_lock = threading.Lock()
+        all_results: list[dict] = []
+
+        def _search_arxiv(tool, q: str) -> None:
+            if not tool:
+                return
+            res = tool.execute({
+                "query": q, "max_results": max(50, self._task.max_papers * 2),
+                "year_start": year_start, "year_end": year_end,
+            })
+            if res.success:
+                with _search_lock:
+                    all_results.append(res.data)
+
+        def _search_ss(tool, q: str) -> None:
+            if not tool:
+                return
+            res = tool.execute({
+                "query": q, "max_results": max(50, self._task.max_papers * 2),
+                "year_start": year_start, "year_end": year_end,
+            })
+            if res.success:
+                with _search_lock:
+                    all_results.append(res.data)
+
         arxiv_tool = self.tools.get("arxiv_search")
         ss_tool = self.tools.get("semantic_scholar_search")
 
-        all_results: list[dict] = []
-        _search_lock = threading.Lock()
+        # ---- Phase 1: Search for survey papers ----
+        self._emit_progress("info", "Phase 1: Searching for survey/review papers...")
+        for q in survey_queries:
+            _search_arxiv(arxiv_tool, q)
+            _search_ss(ss_tool, q)
 
-        def _search_arxiv(q: str) -> None:
-            if not arxiv_tool:
-                return
-            res = arxiv_tool.execute({"query": q, "max_results": max_search})
-            if res.success:
-                with _search_lock:
-                    all_results.append(res.data)
-
-        def _search_ss(q: str) -> None:
-            if not ss_tool:
-                return
-            res = ss_tool.execute({"query": q, "max_results": max_search})
-            if res.success:
-                with _search_lock:
-                    all_results.append(res.data)
-
-        with ThreadPoolExecutor(max_workers=6) as ex:
-            futures = []
-            for q in queries:
-                futures.append(ex.submit(_search_arxiv, q))
-                futures.append(ex.submit(_search_ss, q))
-            for f in as_completed(futures):
-                f.result()  # catch exceptions
-
-        self._emit_progress(
-            "success", f"Parallel search complete: {len(all_results)} result sets",
-            {"queries_completed": len(queries)},
-        )
-
-        # Merge and dedup
+        # Merge and dedup phase 1 results
         merge_tool = self.tools.get("merge_results")
-        merged = merge_tool.execute({"results": all_results}) if merge_tool else type('', (), {})()
-        papers = merged.data.get("papers", []) if hasattr(merged, 'success') and merged.success else []
-        self._emit_progress(
-            "success", f"Merged and deduplicated: {len(papers)} unique papers",
-            {"papers_found": len(papers)},
-        )
+        sort_tool = self.tools.get("sort_by_citation")
+        all_papers: list[dict] = []
+
+        if merge_tool:
+            merged = merge_tool.execute({"results": list(all_results)})
+            if merged.success:
+                all_papers = merged.data.get("papers", [])
 
         # Sort by citation count
-        sort_tool = self.tools.get("sort_by_citation")
-        if sort_tool:
-            sorted_res = sort_tool.execute({"papers": papers})
-            papers = sorted_res.data.get("papers", papers) if sorted_res.success else papers
-        self._emit_progress("success", f"Sorted {len(papers)} papers by citation count")
+        if sort_tool and all_papers:
+            sorted_res = sort_tool.execute({"papers": all_papers})
+            if sorted_res.success:
+                all_papers = sorted_res.data.get("papers", all_papers)
 
-        self._papers = papers[:self._task.max_papers]
-        self._retrieved_queries = queries
+        # ---- Phase 1b: Fetch references from top survey papers ----
+        survey_papers = [p for p in all_papers
+                         if "survey" in p.get("title", "").lower()
+                         or "review" in p.get("title", "").lower()]
+        if survey_papers:
+            self._emit_progress(
+                "info",
+                f"Phase 1b: Fetching references from top {min(3, len(survey_papers))} survey papers...",
+            )
+            expanded = self._fetch_references_from_surveys(survey_papers[:3])
+            if expanded:
+                # Dedup against existing papers
+                seen_titles = set(p.get("title", "").lower().strip() for p in all_papers if p.get("title"))
+                for p in expanded:
+                    t = p.get("title", "").lower().strip()
+                    if t and t not in seen_titles:
+                        seen_titles.add(t)
+                        all_papers.append(p)
+                self._emit_progress(
+                    "success",
+                    f"Added {len(expanded)} papers from survey references",
+                    {"survey_expanded": len(expanded)},
+                )
+
+        # ---- Phase 2: Search for method/benchmark papers ----
+        self._emit_progress("info", "Phase 2: Searching for method and benchmark-specific papers...")
+        phase2_results: list[dict] = []
+        for q in method_queries:
+            _search_arxiv(arxiv_tool, q)
+            _search_ss(ss_tool, q)
+
+        # Merge phase 2 results
+        phase2_merged = []
+        if merge_tool:
+            merged2 = merge_tool.execute({"results": list(all_results)})  # includes phase 1 results too
+            if merged2.success:
+                phase2_merged = merged2.data.get("papers", [])
+
+        # Merge phase 2 into all_papers (dedup)
+        seen_titles = set(p.get("title", "").lower().strip() for p in all_papers if p.get("title"))
+        for p in phase2_merged:
+            t = p.get("title", "").lower().strip()
+            if t and t not in seen_titles:
+                seen_titles.add(t)
+                all_papers.append(p)
+
+        # ---- Final sort by citation count ----
+        if sort_tool:
+            sorted_res = sort_tool.execute({"papers": all_papers})
+            if sorted_res.success:
+                all_papers = sorted_res.data.get("papers", all_papers)
+
+        self._emit_progress(
+            "success", f"Total unique papers: {len(all_papers)}",
+            {"papers_found": len(all_papers)},
+        )
+
+        self._papers = all_papers[:self._task.max_papers]
+        self._retrieved_queries = survey_queries + method_queries
 
         # Register papers in CitationStore for citation resolution
         import logging
@@ -660,6 +744,92 @@ class PipelineOrchestrator:
             {"papers_downloaded": len(self._pdf_chunks)},
         )
         return self._papers
+
+    # ------------------------------------------------------------------
+    # Survey reference expansion
+    # ------------------------------------------------------------------
+    def _fetch_references_from_surveys(self, survey_papers: list[dict]) -> list[dict]:
+        """Fetch references from survey papers using Semantic Scholar API.
+
+        For each survey paper, look up its references (papers it cites)
+        and return them as a flat list of deduplicated paper dicts.
+        """
+        import json
+        import urllib.request
+
+        S2_PAPER_API = "https://api.semanticscholar.org/graph/v1/paper/batch"
+
+        # Collect paper IDs from survey papers
+        paper_ids = []
+        for p in survey_papers:
+            pid = p.get("paper_id", "") or ""
+            if pid:
+                paper_ids.append(pid)
+            # Also try to look up via ArXiv ID
+            arxiv_id = p.get("arxiv_id", "") or ""
+            if arxiv_id:
+                paper_ids.append(f"ArXiv:{arxiv_id}")
+
+        if not paper_ids:
+            return []
+
+        headers = {"User-Agent": "ScholarAgent/1.0"}
+        fields = "title,authors,year,citationCount,externalIds,venue,abstract,url,references"
+
+        try:
+            data = json.dumps({"ids": paper_ids})
+            req = urllib.request.Request(
+                S2_PAPER_API,
+                data=data.encode("utf-8"),
+                headers={**headers, "Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                results = json.loads(resp.read().decode("utf-8"))
+        except Exception as e:
+            logger.warning("Failed to fetch survey references: %s", e)
+            return []
+
+        # Collect referenced papers
+        expanded = []
+        seen_ids = set()
+
+        for paper_data in results:
+            if paper_data is None:
+                continue
+            refs = paper_data.get("references", []) or []
+            for ref_entry in refs:
+                ref = ref_entry.get("paper", {})
+                if not ref:
+                    continue
+                ref_id = ref.get("paperId", "")
+                if ref_id and ref_id in seen_ids:
+                    continue
+                if ref_id:
+                    seen_ids.add(ref_id)
+
+                authors = [a.get("name", "") for a in ref.get("authors", []) if a.get("name")]
+                external_ids = ref.get("externalIds", {}) or {}
+                expanded.append({
+                    "title": ref.get("title", ""),
+                    "authors": authors,
+                    "abstract": ref.get("abstract", "") or "",
+                    "year": ref.get("year", 0) or 0,
+                    "arxiv_id": external_ids.get("ArXiv", ""),
+                    "source": "semantic_scholar",
+                    "url": ref.get("url", ""),
+                    "venue": ref.get("venue", ""),
+                    "citation_count": ref.get("citationCount", 0) or 0,
+                    "doi": external_ids.get("DOI", ""),
+                    "paper_id": ref.get("paperId", ""),
+                    "_from_survey": True,
+                })
+
+        logger.info(
+            "Fetched %d references from %d survey papers",
+            len(expanded), len(paper_ids),
+        )
+        return expanded
 
     def _analyze_papers(self, papers: list[dict]) -> str:
         """Use LLM to analyze the retrieved papers."""
