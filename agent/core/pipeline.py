@@ -721,10 +721,24 @@ class PipelineOrchestrator:
             "Be concise and specific. If some papers are not directly relevant, "
             "focus on the relevant ones and note the others as peripheral."
         )
+
+        # Include PDF-extracted evidence context so the analysis is grounded
+        # in actual paper content, not just abstracts.
+        from agent.evidence.context_retriever import ContextRetriever, EvidenceContextBuilder
+        retriever = ContextRetriever(
+            evidence_store=self._evidence_store,
+            benchmark_store=self._benchmark_store,
+            knowledge_base=self._paper_knowledge_base,
+            max_context_tokens=600,
+        )
+        ev_ctx = retriever.retrieve_for_section()
+        evidence_context = EvidenceContextBuilder.format(ev_ctx)
+
         user_msg = (
             f"Survey topic: {topic}\n\n"
             f"Research plan:\n{self._plan[:2000]}\n\n"
-            f"Retrieved papers ({len(papers)} total):\n{papers_text[:15000]}"
+            f"Retrieved papers ({len(papers)} total):\n{papers_text[:15000]}\n\n"
+            f"{evidence_context}"
         )
 
         resp = self._safe_llm_call(sys_prompt, user_msg)
@@ -955,7 +969,7 @@ class PipelineOrchestrator:
             f"Title: A Comprehensive Survey on {topic}\n"
             f"Keywords: {keywords}\n\n"
             f"Research Plan:\n{self._plan[:3000]}\n\n"
-            f"Paper Analysis:\n{analysis[:6000]}\n\n"
+            f"Paper Analysis:\n{analysis[:15000]}\n\n"
             f"References:\n{ref_text}\n\n"
             f"{evidence_context}\n\n"
             f"{citation_context}\n\n"
