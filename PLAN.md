@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
-**Goal:** Build a self-coded Coding Agent Harness that generates CVPR-style survey papers from a research topic via multi-source literature retrieval, analysis, and feedback-driven writing.
+**Goal:** Build a self-coded Coding Agent Harness that generates IEEEtran conference-format survey papers from a research topic via multi-source literature retrieval, analysis, and feedback-driven writing.
 
 **Architecture:** Python agent harness (state machine + tool dispatch + guardrails + memory + feedback loop) exposed via FastAPI, with a React Web UI consuming REST + WebSocket. No third-party agent frameworks — all harness code is self-implemented.
 
@@ -959,7 +959,7 @@ class SortByCitation(Tool):
 
 class FormatBibtex(Tool):
     name = "format_bibtex"
-    description = "Generate CVPR-standard BibTeX citation"
+    description = "Generate IEEEtran-standard BibTeX citation"
 
     def execute(self, params: dict) -> ToolResult:
         paper = params.get("paper", {})
@@ -2047,7 +2047,7 @@ class LanguagePolisher(Validator):
                 passed=False,
                 score=max(0.0, 1.0 - len(issues) * 0.15),
                 issues=issues[:5],
-                repair_instructions="Replace informal expressions with academic language suitable for CVPR",
+                repair_instructions="Replace informal expressions with academic language suitable for IEEEtran conference",
             )
         return ValidationResult(
             validator_name=self.name,
@@ -3504,7 +3504,7 @@ git commit -m "feat: Dockerfile and GitHub Actions CI configuration"
 ```markdown
 # ScholarAgent
 
-An automated literature review agent that generates CVPR-style survey papers from a research topic.
+An automated literature review agent that generates IEEEtran conference-format survey papers from a research topic.
 
 ## Architecture
 
@@ -3570,7 +3570,7 @@ ScholarAgent/
 ## Brainstorming Key Nodes
 
 ### Node 1: Topic Clarification
-The agent asked about the core idea behind ScholarAgent. The initial concept was refined from "a research assistant" to "an automated survey paper generator with CVPR format output."
+The agent asked about the core idea behind ScholarAgent. The initial concept was refined from "a research assistant" to "an automated survey paper generator with IEEEtran conference format output."
 
 ### Node 2: Architecture Approach
 Three approaches were considered:

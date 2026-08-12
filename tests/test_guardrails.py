@@ -21,7 +21,7 @@ def test_source_filter_blocks_blacklisted_journal():
 
 def test_source_filter_allows_valid_source():
     guard = SourceFilter(blacklist=["predatory"])
-    ctx = {"paper": {"journal": "cvpr"}}
+    ctx = {"paper": {"journal": "ieeetran"}}
     result = guard.check(ctx)
     assert result.verdict == GuardrailVerdict.PASS
 
@@ -102,7 +102,7 @@ def test_guardrail_manager_filter_papers():
         SourceFilter(blacklist=["predatory"]),
     ])
     papers = [
-        {"title": "Good Paper", "journal": "cvpr"},
+        {"title": "Good Paper", "journal": "ieeetran"},
         {"title": "Bad Paper", "journal": "predatory-journal"},
     ]
     filtered = manager.filter_papers(papers)

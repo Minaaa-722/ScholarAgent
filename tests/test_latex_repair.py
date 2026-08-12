@@ -1,8 +1,8 @@
 """
-test_latex_repair.py — Integration test for CVPR format repair module.
+test_latex_repair.py — Integration test for IEEEtran format repair module.
 
 Tests LatexFormatRepair against a simulated Quick Test survey paper that
-contains common CVPR format violations. Verifies all 10 repair rules.
+contains common IEEEtran format violations. Verifies all 10 repair rules.
 """
 
 import re
@@ -119,11 +119,9 @@ def test_rule0_document_header():
     log = repair.repair(QUICK_TEST_DRAFT)
     fixed = log.fixed_text
 
-    # Check CVPR header is present
-    assert "\\documentclass[10pt,twocolumn,letterpaper]{article}" in fixed, \
-        "CVPR documentclass not found"
-    assert "\\usepackage{cvpr}" in fixed, \
-        "cvpr package not loaded"
+    # Check IEEEtran header is present
+    assert "\\documentclass[10pt,conference]{IEEEtran}" in fixed, \
+        "IEEEtran documentclass not found"
     assert "\\usepackage{booktabs,amsmath,amssymb}" in fixed, \
         "booktabs/amsmath/amssymb not loaded"
 
@@ -194,7 +192,7 @@ def test_rule2_bibliography():
         "thebibliography still present"
 
     # Check BibTeX config is inserted
-    assert "\\bibliographystyle{ieeenat}" in fixed, \
+    assert "\\bibliographystyle{IEEEtran}" in fixed, \
         "bibliographystyle not found"
     assert "\\bibliography{references}" in fixed, \
         "bibliography command not found"
@@ -209,7 +207,7 @@ def test_rule2_bibliography():
 
 
 def test_rule3_table_format():
-    """Rule 3: Convert tables to CVPR three-line style."""
+    """Rule 3: Convert tables to IEEEtran three-line style."""
     # Use a simple LaTeX snippet with a table
     test_latex = r"""
 \begin{table}
@@ -513,8 +511,7 @@ def test_full_pipeline():
     fixed = log.fixed_text
 
     # Rule 0
-    assert "\\documentclass[10pt,twocolumn,letterpaper]{article}" in fixed
-    assert "\\usepackage{cvpr}" in fixed
+    assert "\\documentclass[10pt,conference]{IEEEtran}" in fixed
     assert "\\usepackage{geometry}" not in fixed
 
     # Rule 1
@@ -524,7 +521,7 @@ def test_full_pipeline():
 
     # Rule 2
     assert "\\begin{thebibliography}" not in fixed
-    assert "\\bibliographystyle{ieeenat}" in fixed
+    assert "\\bibliographystyle{IEEEtran}" in fixed
     assert "\\bibliography{references}" in fixed
 
     # Rule 3
@@ -581,7 +578,7 @@ def test_individual_rule_toggle():
     fixed2 = log2.fixed_text
 
     # Rule 0 changes should be present
-    assert "\\documentclass[10pt,twocolumn,letterpaper]{article}" in fixed2
+    assert "\\documentclass[10pt,conference]{IEEEtran}" in fixed2
     # But other rules should not have run
     assert "\\section{Abstract}" in fixed2, \
         "Rule 1 should not have run"
@@ -616,7 +613,7 @@ def test_dry_run_with_output():
 
 
 if __name__ == "__main__":
-    print("Testing LatexFormatRepair - CVPR Format Repair Module")
+    print("Testing LatexFormatRepair - IEEEtran Format Repair Module")
     print("=" * 60)
 
     print("\n--- Individual Rule Tests ---")

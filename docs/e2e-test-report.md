@@ -15,7 +15,7 @@
 迭代轮次:      0 轮 (首轮即通过)
 检索论文数:    20 篇 (arXiv + Semantic Scholar 双源)
 耗时:          ~118s
-论文长度:      ~19,500 字符 (CVPR LaTeX 格式)
+论文长度:      ~19,500 字符 (IEEEtran LaTeX 格式)
 ```
 
 ## 2. 全链路状态机流转
@@ -25,7 +25,7 @@
 | IDLE → PLANNING | ✅ | ~2s | LLM 生成研究计划与大纲 |
 | PLANNING → RETRIEVAL | ✅ | ~32s | 双源检索 arXiv + Semantic Scholar，去重合并 |
 | RETRIEVAL → ANALYSIS | ✅ | ~22s | LLM 分析论文，提取关键发现与技术分类 |
-| ANALYSIS → WRITING | ✅ | ~42s | LLM 撰写 CVPR 格式综述，含所有章节 |
+| ANALYSIS → WRITING | ✅ | ~42s | LLM 撰写 IEEEtran 格式综述，含所有章节 |
 | WRITING → VALIDATION | ✅ | ~1s | 5 维度校验器并发执行 |
 | VALIDATION → COMPLETE | ✅ | 瞬间 | 校验得分 1.00，直接通过 |
 
@@ -51,10 +51,10 @@
 
 ## 5. 论文质量评估
 
-- **格式**: CVPR LaTeX (`\documentclass[10pt,twocolumn]{article}`)
+- **格式**: IEEEtran LaTeX (`\documentclass[10pt,conference]{IEEEtran}`)
 - **章节结构**: Abstract → Introduction → Background → Taxonomy → Comparative Analysis → Future Directions → Conclusion → References
 - **技术深度**: 覆盖三大技术分类（架构创新、模型压缩、硬件协同设计）
-- **引用格式**: 标准 CVPR `\cite{}` + `thebibliography`
+- **引用格式**: 标准 IEEEtran `\cite{}` + BibTeX
 - **数据支撑**: 含对比表格（Table 1: 6 种方法对比）
 
 ## 6. 代码变更统计

@@ -504,7 +504,7 @@ class Harness:
 
         Returns a result dict with keys:
           - status: "complete" | "complete_with_warnings" | "error"
-          - paper: full survey text (CVPR format)
+          - paper: full survey text (IEEEtran conference format)
           - execution_log: list of stage records
           - rounds: number of writing-validation rounds
           - error: error message if status is "error"
@@ -627,10 +627,10 @@ class Harness:
         """Use LLM to create a structured research plan."""
         topic = self.task.topic
         keywords = ", ".join(self.task.keywords) if self.task.keywords else "none specified"
-        goal = self.task.goal or "Write a comprehensive CVPR-format survey paper"
+        goal = self.task.goal or "Write a comprehensive IEEEtran conference-format survey paper"
 
         sys_prompt = (
-            "You are a research planning assistant specializing in computer vision and machine learning. "
+            "You are a research planning assistant specializing in computer science and artificial intelligence. "
             "Create a detailed survey paper outline. "
             "Include: introduction, background, taxonomy of approaches, key methods comparison table, "
             "future directions, and conclusion. "
@@ -640,7 +640,7 @@ class Harness:
             f"Topic: {topic}\n"
             f"Keywords: {keywords}\n"
             f"Goal: {goal}\n\n"
-            f"Please produce a structured outline for a CVPR-format survey paper. "
+            f"Please produce a structured outline for an IEEEtran conference-format survey paper. "
             f"Focus on the years {self.config.year_start}–{self.config.year_end}."
         )
 
@@ -773,11 +773,11 @@ class Harness:
         return resp.text
 
     def _write_survey(self, analysis: str, plan: str, papers: list[dict], round_num: int) -> str:
-        """Use LLM to write the survey paper in CVPR format."""
+        """Use LLM to write the survey paper in IEEEtran conference format."""
         topic = self.task.topic
         keywords = ", ".join(self.task.keywords) if self.task.keywords else topic
 
-        # Build a reference list in CVPR format
+        # Build a reference list in IEEEtran format
         refs = []
         for i, p in enumerate(papers, 1):
             authors = p.get("authors", [])[:3]
@@ -802,7 +802,7 @@ class Harness:
             analysis = analysis_replacement
 
         writing_instruction = (
-            "Write a comprehensive CVPR-format survey paper on the given topic. "
+            "Write a comprehensive IEEEtran conference-format survey paper on the given topic. "
             "The paper MUST be substantive: each section should have 3-5 detailed paragraphs. "
             "Use \\cite{ref} for citations. "
             "Structure: \\section{Abstract}, \\section{Introduction}, "
@@ -811,20 +811,19 @@ class Harness:
             "\\section{Conclusion}."
         )
 
-        cvpr_format_instructions = (
-            "### CVPR FORMAT REQUIREMENTS (STRICT) ###\n"
+        ieeetran_format_instructions = (
+            "### IEEEtran CONFERENCE FORMAT REQUIREMENTS (STRICT) ###\n"
             "1. DOCUMENT HEADER: Start with:\n"
-            "   \\documentclass[10pt,twocolumn,letterpaper]{article}\n"
-            "   \\usepackage{cvpr}\n"
+            "   \\documentclass[10pt,conference]{IEEEtran}\n"
             "   \\usepackage{booktabs,amsmath,amssymb}\n"
             "   Do NOT use \\usepackage{geometry} or adjust margins.\n"
             "2. ABSTRACT: Use \\begin{abstract}...\\end{abstract} environment.\n"
             "   Do NOT use \\section{Abstract}.\n"
             "3. BIBLIOGRAPHY: Use ONLY BibTeX with:\n"
-            "   \\bibliographystyle{ieeenat}\n"
+            "   \\bibliographystyle{IEEEtran}\n"
             "   \\bibliography{references}\n"
             "   Do NOT write \\begin{thebibliography} manually.\n"
-            "4. TABLES: Use CVPR three-line table style:\n"
+            "4. TABLES: Use IEEEtran three-line table style:\n"
             "   \\toprule / \\midrule / \\bottomrule from booktabs.\n"
             "   Do NOT use \\hline. Table captions go ABOVE the table.\n"
             "   Use [htbp] float placement for all tables.\n"
@@ -834,25 +833,21 @@ class Harness:
             "   WRONG: ... as shown in previous work.~\\cite{key}\n"
             "7. ACRONYMS: Define all acronyms at first use.\n"
             "   Example: Test-Time Adaptation (TTA), Batch Normalization (BN).\n"
-            "8. TIME RANGE: Survey covers 2020-2025. Works before 2020 are "
-            "foundational prior work. Use 2025, not 2026.\n"
-            "9. FAST INFERENCE: If discussing pruning, quantization, dynamic "
-            "early exit, or NAS in the Quick Test / inference context, include "
-            "this sentence: 'These optimizations reduce runtime latency during "
-            "inference, hence belong to the test-phase pipeline.'\n"
-            "10. TYPOGRAPHY: Use --- for em-dash, -- for en-dash. "
+            "8. TIME RANGE: Survey covers the period from year_start to year_end. "
+            "Works before the start year are foundational prior work.\n"
+            "9. TYPOGRAPHY: Use --- for em-dash, -- for en-dash. "
             "Use `` and '' for quotes, not Unicode smart quotes.\n"
-            "11. PAGE LIMIT: CVPR main body is 8 pages max. "
+            "10. PAGE LIMIT: IEEEtran conference main body is 6 pages max. "
             "Bibliography does not count toward page limit.\n"
-            "12. Use \\section* for the abstract heading if needed, but prefer "
+            "11. Use \\section* for the abstract heading if needed, but prefer "
             "the \\begin{abstract} environment.\n"
-            "13. All \\cite{} keys must use BibTeX-style keys (e.g., author2023title).\n"
-            "### END CVPR FORMAT REQUIREMENTS ###\n"
+            "12. All \\cite{} keys must use BibTeX-style keys (e.g., author2023title).\n"
+            "### END IEEEtran FORMAT REQUIREMENTS ###\n"
         )
 
         sys_prompt = (
-            "You are an academic writing assistant specializing in computer vision surveys. "
-            f"{writing_instruction}\n\n{cvpr_format_instructions}"
+            "You are an academic writing assistant specializing in computer science and artificial intelligence surveys. "
+            f"{writing_instruction}\n\n{ieeetran_format_instructions}"
         )
         user_msg = (
             f"Title: A Comprehensive Survey on {topic}\n"
@@ -1008,13 +1003,13 @@ class Harness:
         return sections
 
     # ------------------------------------------------------------------
-    # Format repair (CVPR LaTeX post-processing)
+    # Format repair (IEEEtran LaTeX post-processing)
     # ------------------------------------------------------------------
     def _format_repair(self, draft: str) -> str:
-        """Run CVPR format repair on the LaTeX draft.
+        """Run IEEEtran format repair on the LaTeX draft.
 
         Applies the 10-rule LatexFormatRepair pipeline to ensure the output
-        strictly conforms to CVPR submission format.
+        strictly conforms to IEEEtran conference submission format.
         """
         repair = LatexFormatRepair()
         repair_log = repair.repair(draft)
@@ -1022,13 +1017,13 @@ class Harness:
 
         if repair_log.has_changes:
             logger.info(
-                "CVPR format repair: %d change(s) applied",
+                "IEEEtran format repair: %d change(s) applied",
                 repair_log.change_count,
             )
             for entry in repair_log.entries:
                 logger.debug("  %s", entry.short())
         else:
-            logger.info("CVPR format repair: no changes needed")
+            logger.info("IEEEtran format repair: no changes needed")
 
         return repair_log.fixed_text
 

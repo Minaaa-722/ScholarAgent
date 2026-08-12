@@ -36,8 +36,10 @@ class ArxivSearch(Tool):
         # merely mention the topic in passing
         search_parts = [f"{search_field}:{urllib.parse.quote(query)}"]
 
-        # Add arXiv category filter (cs.CV = computer vision)
-        search_parts.append("cat:cs.CV")
+        # Add arXiv category filter for CS/AI fields
+        cs_categories = ["cs.AI", "cs.LG", "cs.CV", "cs.CL", "cs.IR", "cs.NE", "cs.MA", "cs.SE", "cs.DB", "cs.CR", "cs.DC"]
+        category_filter = "+OR+".join(f"cat:{cat}" for cat in cs_categories)
+        search_parts.append(f"({category_filter})")
 
         # Add year range filter
         if year_start and year_end:

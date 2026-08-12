@@ -1,6 +1,6 @@
 """Benchmark table generator for deterministic LaTeX table insertion.
 
-Generates CVPR-format (three-line) LaTeX tables from verified benchmark
+Generates IEEEtran-format (three-line) LaTeX tables from verified benchmark
 records and summary comparison tables from PaperKnowledgeBase.
 
 Triggered by ``[TABLE:benchmark_<NAME>]`` and ``[TABLE:model_taxonomy]``
@@ -112,12 +112,12 @@ class BenchmarkTableGenerator:
     # ------------------------------------------------------------------
 
     def generate_benchmark_table(self, benchmark_name: str) -> str:
-        """Generate one CVPR three-line LaTeX table for a specific benchmark.
+        """Generate one IEEEtran three-line LaTeX table for a specific benchmark.
 
         Steps:
           1. Get verified records for ``benchmark_name`` from ``BenchmarkStore``.
           2. Sort by score descending.
-          3. Generate CVPR three-line table format.
+          3. Generate IEEEtran three-line table format.
           4. Each row: ``model_name | score | \\cite{citation_key}``.
 
         Args:

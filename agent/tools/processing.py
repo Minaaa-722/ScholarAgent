@@ -91,7 +91,7 @@ class SortByCitation(Tool):
 
 class FormatBibtex(Tool):
     name = "format_bibtex"
-    description = "Generate CVPR-standard BibTeX citation"
+    description = "Generate IEEEtran-standard BibTeX citation"
 
     def execute(self, params: dict) -> ToolResult:
         paper = params.get("paper", {})

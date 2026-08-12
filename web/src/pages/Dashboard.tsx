@@ -117,9 +117,9 @@ export default function Dashboard() {
               5-dimension quality check with auto-correction.
             </p>
           </Card>
-          <Card title="📝 CVPR Format">
+          <Card title="📄 IEEEtran Format">
             <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)" }}>
-              Outputs in CVPR LaTeX format with BibTeX references.
+              Outputs in IEEEtran conference LaTeX format with BibTeX references.
             </p>
           </Card>
         </div>

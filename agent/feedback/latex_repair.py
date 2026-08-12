@@ -1,8 +1,8 @@
 """
-latex_repair.py — CVPR Format Repair Module
+latex_repair.py — IEEEtran Format Repair Module
 
 Post-processing module that repairs LaTeX output from the LLM to strictly
-conform to CVPR conference submission format. Follows the "system prompt
+conform to IEEEtran conference submission format. Follows the "system prompt
 pre-constraint + Python regex post-processing" dual-layer repair architecture.
 
 All repair functions are independently togglable and execute in a fixed order.
@@ -38,7 +38,7 @@ class RepairEntry:
 # Core repair class
 # ---------------------------------------------------------------------------
 class LatexFormatRepair:
-    """Applies a sequence of togglable CVPR format repair rules to LaTeX source.
+    """Applies a sequence of togglable IEEEtran format repair rules to LaTeX source.
 
     Usage:
         repair = LatexFormatRepair()
@@ -63,9 +63,8 @@ class LatexFormatRepair:
         "rule10_page_estimate": True,
     }
 
-    # ---- CVPR-mandated document header ----
-    CVPR_HEADER = r"""\documentclass[10pt,twocolumn,letterpaper]{article}
-\usepackage{cvpr}
+    # ---- IEEEtran-mandated document header ----
+    IEEE_HEADER = r"""\documentclass[10pt,conference]{IEEEtran}
 \usepackage{booktabs,amsmath,amssymb}
 
 """
@@ -130,23 +129,23 @@ class LatexFormatRepair:
         return log
 
     # ------------------------------------------------------------------
-    # Rule 0: Global CVPR document header standardisation
+    # Rule 0: Global IEEEtran document header standardisation
     # ------------------------------------------------------------------
     def _rule0_document_header(self, latex: str) -> tuple[str, list[RepairEntry]]:
-        """Force CVPR-standard documentclass and preamble; remove geometry tweaks."""
+        """Force IEEEtran-standard documentclass and preamble; remove geometry tweaks."""
         entries = []
         text = latex
 
-        # 0a. Replace any existing \documentclass[...]{...} with CVPR header block
+        # 0a. Replace any existing \documentclass[...]{...} with IEEEtran header block
         docclass_pat = re.compile(r"\\documentclass[^}]*\{[^}]*\}", re.DOTALL)
         match = docclass_pat.search(text)
         if match:
             entries.append(RepairEntry(
                 rule="rule0", location="preamble",
                 original=match.group(0),
-                replacement=self.CVPR_HEADER.strip(),
+                replacement=self.IEEE_HEADER.strip(),
             ))
-            text = docclass_pat.sub(lambda m: self.CVPR_HEADER.strip(), text, count=1)
+            text = docclass_pat.sub(lambda m: self.IEEE_HEADER.strip(), text, count=1)
 
         # 0b. Remove any \usepackage{geometry} and associated \geometry{...} lines
         geo_usecase = re.compile(
@@ -178,21 +177,21 @@ class LatexFormatRepair:
             ))
         text = margin_pat.sub("", text)
 
-        # 0d. Ensure cvpr package is loaded (in case the header replacement didn't cover it)
-        if "\\usepackage{cvpr}" not in text:
-            # Insert after \documentclass
+        # 0d. Ensure IEEEtran documentclass is used (in case the header replacement didn't cover it)
+        if "\\documentclass[10pt,conference]{IEEEtran}" not in text:
+            # Insert proper header after any existing \documentclass
             insert_point = text.find("\\documentclass")
             end_of_line = text.find("\n", insert_point)
             if end_of_line != -1:
-                preamble = self.CVPR_HEADER.strip()
+                preamble = self.IEEE_HEADER.strip()
                 # Remove \documentclass line from the inserted preamble since it's already there
                 lines = preamble.split("\n")
                 non_docclass = [l for l in lines if "\\documentclass" not in l]
                 extra = "\n".join(non_docclass)
                 text = text[:end_of_line + 1] + extra + "\n" + text[end_of_line + 1:]
                 entries.append(RepairEntry(
-                    rule="rule0", location="cvpr-package-insert",
-                    original="(missing \\usepackage{cvpr})",
+                    rule="rule0", location="ieeetran-package-insert",
+                    original="(missing IEEEtran documentclass)",
                     replacement=extra.strip(),
                 ))
 
@@ -234,7 +233,7 @@ class LatexFormatRepair:
         return text, entries
 
     # ------------------------------------------------------------------
-    # Rule 2: Bibliography system correction (CVPR hard requirement)
+    # Rule 2: Bibliography system correction (IEEEtran hard requirement)
     # ------------------------------------------------------------------
     def _rule2_bibliography(self, latex: str) -> tuple[str, list[RepairEntry]]:
         """Remove hand-written thebibliography and insert BibTeX config."""
@@ -251,13 +250,13 @@ class LatexFormatRepair:
             entries.append(RepairEntry(
                 rule="rule2", location="thebibliography",
                 original=m.group(0)[:120],
-                replacement="\\bibliographystyle{ieeenat}\\bibliography{references}",
+                replacement="\\bibliographystyle{IEEEtran}\\bibliography{references}",
             ))
 
         text = bib_pattern.sub("", text)
 
         # Append BibTeX config at the end (before \end{document} if present)
-        bibtex_block = "\n\n\\bibliographystyle{ieeenat}\n\\bibliography{references}\n"
+        bibtex_block = "\n\n\\bibliographystyle{IEEEtran}\n\\bibliography{references}\n"
 
         if "\\bibliographystyle" not in text:
             end_doc = text.find("\\end{document}")
@@ -279,10 +278,10 @@ class LatexFormatRepair:
         return text, entries
 
     # ------------------------------------------------------------------
-    # Rule 3: Table format — CVPR toprule/midrule/bottomrule three-line style
+    # Rule 3: Table format — IEEEtran toprule/midrule/bottomrule three-line style
     # ------------------------------------------------------------------
     def _rule3_table_format(self, latex: str) -> tuple[str, list[RepairEntry]]:
-        """Convert tables to CVPR three-line booktabs style."""
+        """Convert tables to IEEEtran three-line booktabs style."""
         entries = []
         text = latex
 
@@ -408,7 +407,7 @@ class LatexFormatRepair:
         """Spot-check key acronyms; ensure first occurrence has full expansion.
 
         This is a best-effort regex pass. The primary constraint is the system
-        prompt. We only flag common CV abbreviations that are often used without
+        prompt. We only flag common CS/AI abbreviations that are often used without
         definition.
         """
         entries = []
@@ -697,11 +696,11 @@ class LatexFormatRepair:
     # Rule 10: Page count estimation
     # ------------------------------------------------------------------
     def _rule10_page_estimate(self, latex: str) -> list[RepairEntry]:
-        """Estimate compiled PDF page count and warn if over CVPR limit (8 pages)."""
+        """Estimate compiled PDF page count and warn if over IEEEtran limit (6 pages)."""
         entries = []
         text = latex
 
-        # Rough estimate: ~3000 characters per page in two-column CVPR format
+        # Rough estimate: ~3000 characters per page in two-column IEEEtran format
         # This is a coarse heuristic; actual count depends on content density
         body = text
 
@@ -712,11 +711,11 @@ class LatexFormatRepair:
         body_clean = re.sub(r"\s+", " ", body_clean).strip()
 
         char_count = len(body_clean)
-        # CVPR two-column: ~3000-3500 characters of text per page
+        # IEEEtran two-column: ~3000-3500 characters of text per page
         # But tables/figures take up space, so we use a conservative 2800 chars/page
         estimated_pages = char_count / 2800
 
-        # Account for bibliography (not counted in CVPR page limit)
+        # Account for bibliography (not counted in IEEEtran page limit)
         bib_section = re.search(
             r"\\bibliographystyle|\\begin\{thebibliography\}",
             text,
@@ -731,22 +730,22 @@ class LatexFormatRepair:
 
         estimated_pages = max(1, round(estimated_pages, 1))
 
-        if estimated_pages > 8:
+        if estimated_pages > 6:
             entries.append(RepairEntry(
                 rule="rule10", location="page-count",
                 original=f"~{estimated_pages} pages (estimated)",
-                replacement=f"WARNING: ~{estimated_pages} pages exceeds CVPR 8-page limit. "
+                replacement=f"WARNING: ~{estimated_pages} pages exceeds IEEEtran 6-page limit. "
                             f"Consider condensing content.",
             ))
             logger.warning(
-                "Page estimate: ~%.1f pages (CVPR limit: 8). Consider condensing.",
+                "Page estimate: ~%.1f pages (IEEEtran limit: 6). Consider condensing.",
                 estimated_pages,
             )
         else:
             entries.append(RepairEntry(
                 rule="rule10", location="page-count",
                 original=f"~{estimated_pages} pages",
-                replacement=f"~{estimated_pages} pages — within CVPR 8-page limit.",
+                replacement=f"~{estimated_pages} pages — within IEEEtran 6-page limit.",
             ))
 
         return entries

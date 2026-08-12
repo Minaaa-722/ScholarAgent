@@ -1,6 +1,6 @@
 # ScholarAgent — 论文综述智能体
 
-ScholarAgent 是一个**自编码的 Coding Agent Harness**，用于自动生成 CVPR 格式的学术文献综述论文。用户只需输入研究主题，Agent 即可完成「检索 → 分析 → 写作 → 验证」全流程，最终输出一篇完整的综述论文。
+ScholarAgent 是一个**自编码的 Coding Agent Harness**，用于自动生成 IEEEtran 会议格式的学术文献综述论文。用户只需输入研究主题，Agent 即可完成「检索 → 分析 → 写作 → 验证」全流程，最终输出一篇完整的综述论文。
 
 > **AI4SE 期末项目 · Track A · Coding Agent Harness**
 
@@ -8,7 +8,7 @@ ScholarAgent 是一个**自编码的 Coding Agent Harness**，用于自动生成
 
 ## 功能特性
 
-- **端到端综述生成**：输入主题，自动输出 CVPR 格式综述论文
+- **端到端综述生成**：输入主题，自动输出 IEEEtran 会议格式综述论文
 - **多源文献检索**：集成 arXiv、Semantic Scholar、Google Scholar
 - **反馈闭环**：5 个确定性校验器（引用检查、幻觉检测、字数统计、语言润色、连贯性检查），支持多轮修正
 - **守卫系统**：5 类守卫（来源过滤、事实绑定、操作安全、速率限制、输出标准化）

@@ -3,7 +3,7 @@
 End-to-End Pipeline Runner — ScholarAgent
 ------------------------------------------
 Drives the full survey-generation pipeline:
-  课题输入 → 文献检索 → 综述初稿撰写 → 5维度校验纠错 → 多轮迭代 → 输出CVPR格式综述论文
+  课题输入 → 文献检索 → 综述初稿撰写 → 5维度校验纠错 → 多轮迭代 → 输出IEEEtran会议格式综述论文
 
 Usage:
     python run_e2e.py                          # 使用默认课题
@@ -73,17 +73,17 @@ def main():
     parser = argparse.ArgumentParser(description="ScholarAgent E2E Pipeline Runner")
     parser.add_argument(
         "--topic",
-        default="Efficient Vision Transformers for Edge Deployment",
+        default="Efficient Transformer Architectures for Edge Deployment",
         help="Research topic for the survey paper",
     )
     parser.add_argument(
         "--keywords",
-        default="vision transformer, efficient, edge deployment, model compression, lightweight, mobile-friendly",
+        default="transformer, efficient, edge deployment, model compression, lightweight, deep learning",
         help="Comma-separated keywords",
     )
     parser.add_argument(
         "--goal",
-        default="Write a comprehensive CVPR-format survey covering efficient vision transformer architectures, "
+        default="Write a comprehensive IEEEtran conference-format survey covering efficient transformer architectures, "
                 "model compression techniques, hardware-aware design, and deployment on edge devices",
         help="Goal description for the survey",
     )

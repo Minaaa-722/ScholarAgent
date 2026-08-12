@@ -351,7 +351,7 @@ class PipelineOrchestrator:
             # ---- Format Repair ----
             self._progress(
                 on_progress, "format_repair",
-                "Applying CVPR format repair rules?",
+                "Applying IEEEtran format repair rules?",
             )
             draft = self._format_repair(draft)
             final_draft = draft
@@ -361,7 +361,7 @@ class PipelineOrchestrator:
             # 5. VALIDATION
             self._progress(
                 on_progress, "validation",
-                "Running 5-dimension quality validation on CVPR-formatted draft?",
+                "Running 5-dimension quality validation on IEEEtran-formatted draft?",
             )
             results = self._run_validators(draft)
             report = self._aggregate_results(results)
@@ -427,10 +427,10 @@ class PipelineOrchestrator:
         """Use LLM to create a structured research plan."""
         topic = self._task.topic
         keywords = ", ".join(self._task.keywords) if self._task.keywords else "none specified"
-        goal = self._task.goal or "Write a comprehensive CVPR-format survey paper"
+        goal = self._task.goal or "Write a comprehensive IEEEtran conference-format survey paper"
 
         sys_prompt = (
-            "You are a research planning assistant specializing in computer vision and machine learning. "
+            "You are a research planning assistant specializing in computer science and artificial intelligence. "
             "Create a detailed survey paper outline. "
             "Include: introduction, background, taxonomy of approaches, key methods comparison table, "
             "future directions, and conclusion. "
@@ -440,7 +440,7 @@ class PipelineOrchestrator:
             f"Topic: {topic}\n"
             f"Keywords: {keywords}\n"
             f"Goal: {goal}\n\n"
-            f"Please produce a structured outline for a CVPR-format survey paper. "
+            f"Please produce a structured outline for an IEEEtran conference-format survey paper. "
             f"Focus on the years {self.config.year_start}?{self.config.year_end}."
         )
 
@@ -1008,7 +1008,7 @@ class PipelineOrchestrator:
             logger.warning("Evidence benchmark/knowledge extraction failed: %s", e)
 
     def _write_survey(self, analysis: str, round_num: int) -> str:
-        """Use LLM to write the survey paper in CVPR format."""
+        """Use LLM to write the survey paper in IEEEtran conference format."""
         topic = self._task.topic
         keywords = ", ".join(self._task.keywords) if self._task.keywords else topic
 
@@ -1038,7 +1038,7 @@ class PipelineOrchestrator:
             )
 
         writing_instruction = (
-            "Write a comprehensive CVPR-format survey paper on the given topic. "
+            "Write a comprehensive IEEEtran conference-format survey paper on the given topic. "
             "The paper MUST be substantive: each section should have 3-5 detailed paragraphs. "
             "Use [CITE:key] markers for citations (e.g., [CITE:qwen2024]). "
             "NEVER write \\cite{} directly — the system will convert markers automatically. "
@@ -1049,20 +1049,19 @@ class PipelineOrchestrator:
             "\\section{Conclusion}."
         )
 
-        cvpr_format_instructions = (
-            "### CVPR FORMAT REQUIREMENTS (STRICT) ###\n"
+        ieeetran_format_instructions = (
+            "### IEEEtran CONFERENCE FORMAT REQUIREMENTS (STRICT) ###\n"
             "1. DOCUMENT HEADER: Start with:\n"
-            "   \\documentclass[10pt,twocolumn,letterpaper]{article}\n"
-            "   \\usepackage{cvpr}\n"
+            "   \\documentclass[10pt,conference]{IEEEtran}\n"
             "   \\usepackage{booktabs,amsmath,amssymb}\n"
             "   Do NOT use \\usepackage{geometry} or adjust margins.\n"
             "2. ABSTRACT: Use \\begin{abstract}...\\end{abstract} environment.\n"
             "   Do NOT use \\section{Abstract}.\n"
             "3. BIBLIOGRAPHY: Use ONLY BibTeX with:\n"
-            "   \\bibliographystyle{ieeenat}\n"
+            "   \\bibliographystyle{IEEEtran}\n"
             "   \\bibliography{references}\n"
             "   Do NOT write \\begin{thebibliography} manually.\n"
-            "4. TABLES: Use CVPR three-line table style:\n"
+            "4. TABLES: Use IEEEtran three-line table style:\n"
             "   \\toprule / \\midrule / \\bottomrule from booktabs.\n"
             "   Do NOT use \\hline. Table captions go ABOVE the table.\n"
             "   Use [htbp] float placement for all tables.\n"
@@ -1072,25 +1071,21 @@ class PipelineOrchestrator:
             "   WRONG: ... as shown in previous work.~\\cite{key}\n"
             "7. ACRONYMS: Define all acronyms at first use.\n"
             "   Example: Test-Time Adaptation (TTA), Batch Normalization (BN).\n"
-            "8. TIME RANGE: Survey covers 2020-2025. Works before 2020 are "
-            "foundational prior work. Use 2025, not 2026.\n"
-            "9. FAST INFERENCE: If discussing pruning, quantization, dynamic "
-            "early exit, or NAS in the Quick Test / inference context, include "
-            "this sentence: 'These optimizations reduce runtime latency during "
-            "inference, hence belong to the test-phase pipeline.'\n"
-            "10. TYPOGRAPHY: Use --- for em-dash, -- for en-dash. "
+            "8. TIME RANGE: Survey covers the period from year_start to year_end. "
+            "Works before the start year are foundational prior work.\n"
+            "9. TYPOGRAPHY: Use --- for em-dash, -- for en-dash. "
             "Use `` and '' for quotes, not Unicode smart quotes.\n"
-            "11. PAGE LIMIT: CVPR main body is 8 pages max. "
+            "10. PAGE LIMIT: IEEEtran conference main body is 6 pages max. "
             "Bibliography does not count toward page limit.\n"
-            "12. Use \\section* for the abstract heading if needed, but prefer "
+            "11. Use \\section* for the abstract heading if needed, but prefer "
             "the \\begin{abstract} environment.\n"
-            "13. Use [CITE:key] markers for citations. NEVER write \\cite{} directly.\n"
-            "### END CVPR FORMAT REQUIREMENTS ###\n"
+            "12. Use [CITE:key] markers for citations. NEVER write \\cite{} directly.\n"
+            "### END IEEEtran FORMAT REQUIREMENTS ###\n"
         )
 
         sys_prompt = (
-            "You are an academic writing assistant specializing in computer vision surveys. "
-            f"{writing_instruction}\n\n{cvpr_format_instructions}"
+            "You are an academic writing assistant specializing in computer science and artificial intelligence surveys. "
+            f"{writing_instruction}\n\n{ieeetran_format_instructions}"
         )
         # Evidence context for factual grounding (from all three stores)
         retriever = ContextRetriever(
@@ -1461,8 +1456,8 @@ class PipelineOrchestrator:
     # Format repair
     # ------------------------------------------------------------------
     def _format_repair(self, draft: str) -> str:
-        """Run CVPR format repair on the LaTeX draft."""
-        self._emit_progress("info", "Running CVPR format repair...")
+        """Run IEEEtran format repair on the LaTeX draft."""
+        self._emit_progress("info", "Running IEEEtran format repair...")
         repair_log = self._latex_repair.repair(draft)
         self.latex_repair_log = repair_log
 
@@ -1473,14 +1468,14 @@ class PipelineOrchestrator:
                 {"changes_count": repair_log.change_count},
             )
             logger.info(
-                "CVPR format repair: %d change(s) applied",
+                "IEEEtran format repair: %d change(s) applied",
                 repair_log.change_count,
             )
             for entry in repair_log.entries:
                 logger.debug("  %s", entry.short())
         else:
             self._emit_progress("success", "Format repair: no changes needed")
-            logger.info("CVPR format repair: no changes needed")
+            logger.info("IEEEtran format repair: no changes needed")
 
         return repair_log.fixed_text
 
