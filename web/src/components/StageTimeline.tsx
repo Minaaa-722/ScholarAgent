@@ -2,7 +2,8 @@ import React, { useEffect, useRef } from "react";
 import Card from "./Card";
 
 /** Convert simple markdown patterns to readable HTML for display */
-function markdownToHtml(text: string): string {
+function markdownToHtml(text: string | undefined | null): string {
+  if (!text) return "";
   // Escape HTML entities first to prevent XSS
   const escapeHtml = (s: string) =>
     s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
