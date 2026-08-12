@@ -270,6 +270,9 @@ class PipelineOrchestrator:
         if self._check_interrupted():
             return PipelineResult(status="interrupted", execution_log=self.execution_log)
         fb = self._check_human_feedback(on_progress)
+        # Save any papers added via feedback BEFORE retrieval, because
+        # _retrieve_papers() will overwrite self._papers with its own results.
+        feedback_papers = list(self._papers) if fb.get("papers_updated") else []
 
         # ---- Stage 2: RETRIEVAL ----
         self._progress(on_progress, "retrieval", "Searching arXiv and Semantic Scholar?")
@@ -277,6 +280,26 @@ class PipelineOrchestrator:
             lambda: self._retrieve_papers(), AgentState.RETRIEVAL, on_progress)
         # Apply guardrail: filter papers
         papers = self._guardrails.filter_papers(papers)
+        # Sync guardrail-filtered list back to self._papers so feedback
+        # processing later sees the same set as the local variable.
+        self._papers = list(papers)
+
+        # Merge feedback-supplemented papers (added before retrieval) into
+        # the retrieval results, so they survive the _retrieve_papers overwrite.
+        if feedback_papers:
+            seen_titles = set(p.get("title", "").strip().lower() for p in papers if p.get("title"))
+            for p in feedback_papers:
+                t = p.get("title", "").strip().lower()
+                if t and t not in seen_titles:
+                    papers.append(p)
+                    seen_titles.add(t)
+            self._papers = list(papers)
+            self._emit_progress(
+                "info",
+                f"Merged {len(feedback_papers)} feedback-supplemented papers "
+                f"into retrieval results ({len(papers)} total)",
+            )
+
         self._log("RETRIEVAL", {"paper_count": len(papers)})
         self._safe_transition(AgentState.ANALYSIS)
         if self._check_interrupted():
