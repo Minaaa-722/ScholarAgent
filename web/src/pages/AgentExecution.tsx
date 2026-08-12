@@ -33,7 +33,7 @@ interface SectionInfo {
 }
 
 interface ExecutionDetails {
-  plan?: { summary: string; preview: string[]; section_count: number };
+  plan?: { summary: string; full_text: string; section_count: number };
   search_queries?: string[];
   papers?: { total: number; list: PaperInfo[] };
   analysis?: { summary: string; preview: string };

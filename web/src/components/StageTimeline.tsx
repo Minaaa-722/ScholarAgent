@@ -114,7 +114,7 @@ export interface SectionInfo {
 }
 
 export interface ExecutionDetails {
-  plan?: { summary: string; preview: string[]; section_count: number };
+  plan?: { summary: string; full_text: string; section_count: number };
   search_queries?: string[];
   papers?: { total: number; list: PaperInfo[] };
   analysis?: { summary: string; preview: string };
@@ -209,22 +209,20 @@ function StageArtifact({
           <p className="text-secondary mb-sm">
             共 {details.plan.section_count} 个章节/要点
           </p>
-          <div style={SCROLLABLE_CONTENT_STYLE}>
-            {details.plan.preview.map((line, i) => (
-              <div
-                key={i}
-                style={{
-                  margin: "0.2rem 0",
-                  paddingLeft: "0.5rem",
-                  borderLeft: "2px solid var(--color-primary)",
-                  fontSize: "var(--font-size-sm)",
-                }}
-                dangerouslySetInnerHTML={{
-                  __html: markdownToHtml(line),
-                }}
-              />
-            ))}
-          </div>
+          <div
+            className="artifact-content"
+            style={{
+              ...SCROLLABLE_CONTENT_STYLE,
+              color: "var(--color-text-secondary)",
+              fontSize: "var(--font-size-sm)",
+              lineHeight: 1.7,
+              margin: 0,
+              overflowX: "auto",
+            }}
+            dangerouslySetInnerHTML={{
+              __html: markdownToHtml(details.plan.full_text),
+            }}
+          />
         </Card>
       ) : (
         <p className="text-disabled" style={{ fontSize: "var(--font-size-sm)" }}>

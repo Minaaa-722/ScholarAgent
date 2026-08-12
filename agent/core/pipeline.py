@@ -1575,10 +1575,9 @@ class PipelineOrchestrator:
         details = {}
         if self._plan:
             lines = [l.strip() for l in self._plan.split("\n") if l.strip()]
-            preview_lines = [l for l in lines if len(l) > 10][:5]
             details["plan"] = {
                 "summary": "Research plan generated",
-                "preview": preview_lines,
+                "full_text": self._plan,
                 "section_count": sum(1 for l in lines if l.startswith(("\\section", "- **", "###"))),
             }
         if self._papers:
