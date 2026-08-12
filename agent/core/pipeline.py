@@ -460,104 +460,57 @@ class PipelineOrchestrator:
         return resp.text
 
     def _retrieve_papers(self) -> list[dict]:
-        """Search arXiv and Semantic Scholar, merge and dedup results.
+        """Search arXiv and Semantic Scholar by topic, sorted by citation count.
 
-        Two-phase retrieval:
-          Phase 1 - Search for survey/review papers, then fetch their references
-          Phase 2 - Search for method/benchmark/direction-specific papers
+        Strategy: use the topic directly as the search query (no LLM-generated
+        queries, which introduce noise). Search arXiv by title only, and
+        Semantic Scholar sorted by citation count. Merge, re-sort, truncate.
         """
         topic = self._task.topic
         keywords = self._task.keywords or [topic]
         year_start = self.config.year_start
         year_end = self.config.year_end
 
-        # ---- Generate multi-strategy queries ----
-        sys_prompt = (
-            "You are a literature search strategist. "
-            "Generate search queries for a survey on the given topic. "
-            "Produce exactly 4 queries, one per line, no numbering, no explanation.\n"
-            "Strategy 1 — Survey/review: find comprehensive survey papers.\n"
-            "Strategy 2 — Method + benchmark: find papers using standard benchmarks.\n"
-            "Strategy 3 — Specific technique: find papers using modern methods.\n"
-            "Strategy 4 — Sub-direction: find papers in a specific sub-area.\n"
-            "Example for 'edge detection':\n"
-            "edge detection survey deep learning\n"
-            "edge detection BSDS500 benchmark\n"
-            "edge detection transformer\n"
-            "edge detection self-supervised\n\n"
-            "IMPORTANT: Be specific. Include benchmark names, method names, "
-            "and technique names when possible. Avoid generic terms like "
-            "'deep learning' or 'recent advances' as the only qualifier."
-        )
-        user_msg = (
-            f"Survey topic: {topic}\n"
-            f"Keywords: {', '.join(keywords)}\n"
-            f"Time range: {year_start}–{year_end}\n\n"
-            "Generate 4 specific search queries (one per strategy).\n"
-            "For strategy 2, include relevant benchmark dataset names.\n"
-            "For strategy 3, include specific architecture or method names."
-        )
-
-        self._guardrails.check_tool_call("llm_generate", {"prompt": user_msg})
-        resp = self._safe_llm_call(sys_prompt, user_msg, use_tools=True)
-
-        # Parse queries
-        raw_lines = resp.text.strip().split("\n")
-        queries = []
-        for line in raw_lines:
-            line = line.strip().strip('"').strip("'").strip("-").strip()
-            if (line
-                and len(line) < 200
-                and not line.lower().startswith(("here", "sure", "ok", "i'll", "let", "the", "for", "of course"))
-                and not line.startswith(("1.", "2.", "3.", "4.", "-", "*"))
-            ):
-                queries.append(line)
-
-        # Fallback: ensure we have survey queries and method queries
-        strategy_queries = []
-        has_survey = any("survey" in q.lower() or "review" in q.lower() for q in queries)
-        if has_survey:
-            survey_queries = [q for q in queries if "survey" in q.lower() or "review" in q.lower()]
-            method_queries = [q for q in queries if q not in survey_queries]
+        # Use the topic as the primary search query
+        primary_query = topic
+        # Add a secondary query with keywords for more coverage
+        if keywords and keywords[0] != topic:
+            secondary_query = f"{topic} {' '.join(keywords[:3])}"
         else:
-            survey_queries = [f"{topic} survey"]
-            method_queries = queries if queries else [topic]
+            secondary_query = topic
 
-        if not method_queries:
-            method_queries = [topic, f"{topic} {' '.join(keywords[:3])}"]
+        queries = [primary_query, secondary_query]
 
         self._emit_progress(
-            "success", f"Generated {len(survey_queries)} survey + {len(method_queries)} method queries",
-            {
-                "queries_total": len(survey_queries) + len(method_queries),
-                "survey_queries": len(survey_queries),
-                "method_queries": len(method_queries),
-            },
+            "success", f"Searching with {len(queries)} direct queries (no LLM-generated queries)",
+            {"queries": queries},
         )
 
-        # ---- Helper: search a single query ----
+        # ---- Search ----
         _search_lock = threading.Lock()
         all_results: list[dict] = []
 
-        def _search_arxiv(tool, q: str, search_field: str = "ti") -> None:
+        def _search_arxiv(tool, q: str) -> None:
             if not tool:
                 return
+            # Title-only search (ti:) to match papers ABOUT the topic
             res = tool.execute({
                 "query": q, "max_results": max(50, self._task.max_papers * 2),
                 "year_start": year_start, "year_end": year_end,
-                "search_field": search_field,
+                "search_field": "ti",
             })
             if res.success:
                 with _search_lock:
                     all_results.append(res.data)
 
-        def _search_ss(tool, q: str, min_citations: int = 3) -> None:
+        def _search_ss(tool, q: str) -> None:
             if not tool:
                 return
+            # Sorted by citation count, with min citation filter
             res = tool.execute({
                 "query": q, "max_results": max(50, self._task.max_papers * 2),
                 "year_start": year_start, "year_end": year_end,
-                "min_citation_count": min_citations,
+                "min_citation_count": 3,
             })
             if res.success:
                 with _search_lock:
@@ -566,13 +519,12 @@ class PipelineOrchestrator:
         arxiv_tool = self.tools.get("arxiv_search")
         ss_tool = self.tools.get("semantic_scholar_search")
 
-        # ---- Phase 1: Search for survey papers ----
-        self._emit_progress("info", "Phase 1: Searching for survey/review papers...")
-        for q in survey_queries:
+        self._emit_progress("info", f"Searching arXiv (title-only) and Semantic Scholar (by citation count)...")
+        for q in queries:
             _search_arxiv(arxiv_tool, q)
             _search_ss(ss_tool, q)
 
-        # Merge and dedup phase 1 results
+        # ---- Merge & dedup ----
         merge_tool = self.tools.get("merge_results")
         sort_tool = self.tools.get("sort_by_citation")
         all_papers: list[dict] = []
@@ -582,83 +534,24 @@ class PipelineOrchestrator:
             if merged.success:
                 all_papers = merged.data.get("papers", [])
 
-        # Sort by citation count
+        self._emit_progress(
+            "success", f"Merged: {len(all_papers)} unique papers",
+            {"papers_found": len(all_papers)},
+        )
+
+        # ---- Sort by citation count ----
         if sort_tool and all_papers:
             sorted_res = sort_tool.execute({"papers": all_papers})
             if sorted_res.success:
                 all_papers = sorted_res.data.get("papers", all_papers)
 
-        # ---- Phase 1b: Fetch references from top survey papers ----
-        survey_papers = [p for p in all_papers
-                         if "survey" in p.get("title", "").lower()
-                         or "review" in p.get("title", "").lower()]
-        if survey_papers:
-            self._emit_progress(
-                "info",
-                f"Phase 1b: Fetching references from top {min(3, len(survey_papers))} survey papers...",
-            )
-            expanded = self._fetch_references_from_surveys(survey_papers[:3])
-            if expanded:
-                # Dedup against existing papers
-                seen_titles = set(p.get("title", "").lower().strip() for p in all_papers if p.get("title"))
-                for p in expanded:
-                    t = p.get("title", "").lower().strip()
-                    if t and t not in seen_titles:
-                        seen_titles.add(t)
-                        all_papers.append(p)
-                self._emit_progress(
-                    "success",
-                    f"Added {len(expanded)} papers from survey references",
-                    {"survey_expanded": len(expanded)},
-                )
-
-        # ---- Phase 2: Search for method/benchmark papers ----
-        self._emit_progress("info", "Phase 2: Searching for method and benchmark-specific papers...")
-        phase2_results: list[dict] = []
-        for q in method_queries:
-            _search_arxiv(arxiv_tool, q)
-            _search_ss(ss_tool, q)
-
-        # Merge phase 2 results
-        phase2_merged = []
-        if merge_tool:
-            merged2 = merge_tool.execute({"results": list(all_results)})  # includes phase 1 results too
-            if merged2.success:
-                phase2_merged = merged2.data.get("papers", [])
-
-        # Merge phase 2 into all_papers (dedup)
-        seen_titles = set(p.get("title", "").lower().strip() for p in all_papers if p.get("title"))
-        for p in phase2_merged:
-            t = p.get("title", "").lower().strip()
-            if t and t not in seen_titles:
-                seen_titles.add(t)
-                all_papers.append(p)
-
-        # ---- LLM-based relevance filter ----
-        # Filter out papers that are clearly NOT about the survey topic,
-        # even if they happen to mention the topic keywords in passing.
-        if len(all_papers) > 5:
-            self._emit_progress("info", "Running LLM relevance filter on retrieved papers...")
-            all_papers = self._filter_relevant_papers(all_papers, topic)
-            self._emit_progress(
-                "success",
-                f"Relevance filter: {len(all_papers)} papers remain",
-                {"papers_after_filter": len(all_papers)},
-            )
-
-        # ---- Final sort by citation count ----
-        if sort_tool:
-            sorted_res = sort_tool.execute({"papers": all_papers})
-            if sorted_res.success:
-                all_papers = sorted_res.data.get("papers", all_papers)
-
         self._emit_progress(
-            "success", f"Total unique papers: {len(all_papers)}",
+            "success", f"Top papers by citation count: {len(all_papers)} total",
             {"papers_found": len(all_papers)},
         )
 
         self._papers = all_papers[:self._task.max_papers]
-        self._retrieved_queries = survey_queries + method_queries
+        self._retrieved_queries = queries
 
         # Register papers in CitationStore for citation resolution
         import logging

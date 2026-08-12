@@ -166,7 +166,7 @@ class SemanticScholarSearch(Tool):
             f"{SEMANTIC_SCHOLAR_API_URL}?query={urllib.parse.quote(query)}"
             f"&limit={limit}&fields={fields}"
             f"&sortBy=citationCount"
-            f"&fieldsOfStudy=Computer Science"
+            f"&fieldsOfStudy={urllib.parse.quote('Computer Science')}"
         )
         if year_start and year_end:
             url += f"&year={year_start}-{year_end}"
