@@ -26,12 +26,15 @@ class ArxivSearch(Tool):
         max_results = min(params.get("max_results", 20), 100)
         year_start = params.get("year_start", 0)
         year_end = params.get("year_end", 0)
+        search_field = params.get("search_field", "ti")  # ti=title, all=full text
 
         if not query:
             return ToolResult(success=False, error="query is required")
 
         # Build search query with optional filters
-        search_parts = [f"all:{urllib.parse.quote(query)}"]
+        # Use title-only search by default to avoid matching papers that
+        # merely mention the topic in passing
+        search_parts = [f"{search_field}:{urllib.parse.quote(query)}"]
 
         # Add arXiv category filter (cs.CV = computer vision)
         search_parts.append("cat:cs.CV")
@@ -149,6 +152,7 @@ class SemanticScholarSearch(Tool):
         limit = min(params.get("max_results", 20), 100)
         year_start = params.get("year_start", 0)
         year_end = params.get("year_end", 0)
+        min_citation_count = params.get("min_citation_count", 3)
 
         if not query:
             return ToolResult(success=False, error="query is required")
@@ -166,6 +170,8 @@ class SemanticScholarSearch(Tool):
         )
         if year_start and year_end:
             url += f"&year={year_start}-{year_end}"
+        if min_citation_count > 0:
+            url += f"&minCitationCount={min_citation_count}"
 
         # Retry with backoff for rate limiting (429)
         max_attempts = 3

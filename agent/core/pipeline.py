@@ -484,13 +484,18 @@ class PipelineOrchestrator:
             "edge detection survey deep learning\n"
             "edge detection BSDS500 benchmark\n"
             "edge detection transformer\n"
-            "edge detection self-supervised"
+            "edge detection self-supervised\n\n"
+            "IMPORTANT: Be specific. Include benchmark names, method names, "
+            "and technique names when possible. Avoid generic terms like "
+            "'deep learning' or 'recent advances' as the only qualifier."
         )
         user_msg = (
             f"Survey topic: {topic}\n"
             f"Keywords: {', '.join(keywords)}\n"
             f"Time range: {year_start}–{year_end}\n\n"
-            "Generate 4 search queries (one per strategy)."
+            "Generate 4 specific search queries (one per strategy).\n"
+            "For strategy 2, include relevant benchmark dataset names.\n"
+            "For strategy 3, include specific architecture or method names."
         )
 
         self._guardrails.check_tool_call("llm_generate", {"prompt": user_msg})
@@ -534,23 +539,25 @@ class PipelineOrchestrator:
         _search_lock = threading.Lock()
         all_results: list[dict] = []
 
-        def _search_arxiv(tool, q: str) -> None:
+        def _search_arxiv(tool, q: str, search_field: str = "ti") -> None:
             if not tool:
                 return
             res = tool.execute({
                 "query": q, "max_results": max(50, self._task.max_papers * 2),
                 "year_start": year_start, "year_end": year_end,
+                "search_field": search_field,
             })
             if res.success:
                 with _search_lock:
                     all_results.append(res.data)
 
-        def _search_ss(tool, q: str) -> None:
+        def _search_ss(tool, q: str, min_citations: int = 3) -> None:
             if not tool:
                 return
             res = tool.execute({
                 "query": q, "max_results": max(50, self._task.max_papers * 2),
                 "year_start": year_start, "year_end": year_end,
+                "min_citation_count": min_citations,
             })
             if res.success:
                 with _search_lock:
@@ -626,6 +633,18 @@ class PipelineOrchestrator:
             if t and t not in seen_titles:
                 seen_titles.add(t)
                 all_papers.append(p)
+
+        # ---- LLM-based relevance filter ----
+        # Filter out papers that are clearly NOT about the survey topic,
+        # even if they happen to mention the topic keywords in passing.
+        if len(all_papers) > 5:
+            self._emit_progress("info", "Running LLM relevance filter on retrieved papers...")
+            all_papers = self._filter_relevant_papers(all_papers, topic)
+            self._emit_progress(
+                "success",
+                f"Relevance filter: {len(all_papers)} papers remain",
+                {"papers_after_filter": len(all_papers)},
+            )
 
         # ---- Final sort by citation count ----
         if sort_tool:
@@ -830,6 +849,91 @@ class PipelineOrchestrator:
             len(expanded), len(paper_ids),
         )
         return expanded
+
+    def _filter_relevant_papers(self, papers: list[dict], topic: str) -> list[dict]:
+        """Use LLM to filter out papers that are clearly irrelevant to the topic.
+
+        Batch-judges papers to avoid excessive LLM calls. Papers with titles
+        that obviously don't match the topic are removed.
+        """
+        if not papers:
+            return []
+
+        # Prepare paper summaries for the LLM
+        paper_lines = []
+        for i, p in enumerate(papers, 1):
+            title = (p.get("title") or "Untitled")[:150]
+            abstract = (p.get("abstract") or "")[:250]
+            paper_lines.append(f"[{i}] {title}\n    Abstract: {abstract}")
+
+        papers_text = "\n\n".join(paper_lines)
+
+        sys_prompt = (
+            "You are a strict relevance judge for academic literature search. "
+            f"Your task: determine whether each paper is RELEVANT to the research topic: \"{topic}\".\n\n"
+            "A paper is RELEVANT if:\n"
+            "- The paper's PRIMARY contribution is about the topic itself\n"
+            "- The paper proposes a new method, survey, or benchmark for the topic\n"
+            "- The paper's title and abstract clearly indicate it addresses the topic\n\n"
+            "A paper is NOT RELEVANT if:\n"
+            "- The topic is only mentioned as a tool used for something else\n"
+            "- The paper is about a completely different field (astronomy, security, etc.)\n"
+            "- The paper only peripherally mentions the topic in related work\n\n"
+            "For each paper, output one line:\n"
+            "TITLE | KEEP | REASON\n"
+            "Where KEEP is 'YES' or 'NO'.\n\n"
+            "Example:\n"
+            "HED: Holistically-Nested Edge Detection | YES | Core edge detection method\n"
+            "A Survey on Deep Learning for Edge Detection | YES | Survey on the topic\n"
+            "Astronomical Object Detection in Deep Space | NO | About astronomy, not edge detection\n\n"
+            "Be strict — only keep papers that are clearly about the topic."
+        )
+        user_msg = (
+            f"Topic: {topic}\n\n"
+            f"Papers to judge ({len(papers)} total):\n{papers_text}"
+        )
+
+        try:
+            resp = self._safe_llm_call(sys_prompt, user_msg)
+        except Exception as e:
+            logger.warning("Relevance filter LLM call failed: %s — keeping all papers", e)
+            return papers
+
+        # Parse LLM response
+        keep_titles = set()
+        for line in resp.text.strip().split("\n"):
+            line = line.strip()
+            if not line or "|" not in line:
+                continue
+            parts = [p.strip() for p in line.split("|")]
+            if len(parts) < 2:
+                continue
+            title = parts[0].lower().strip()
+            verdict = parts[1].strip().upper()
+            if verdict == "YES":
+                keep_titles.add(title)
+
+        # Filter papers
+        kept = []
+        removed = 0
+        for p in papers:
+            title = (p.get("title") or "").lower().strip()
+            if title in keep_titles:
+                kept.append(p)
+            else:
+                removed += 1
+
+        logger.info(
+            "Relevance filter: kept %d/%d papers (removed %d)",
+            len(kept), len(papers), removed,
+        )
+
+        # Safety: if the filter would remove everything, keep top-10 by citation
+        if not kept and papers:
+            logger.warning("Relevance filter removed ALL papers — keeping top 10 by citation as fallback")
+            kept = sorted(papers, key=lambda x: x.get("citation_count", 0), reverse=True)[:10]
+
+        return kept
 
     def _analyze_papers(self, papers: list[dict]) -> str:
         """Use LLM to analyze the retrieved papers."""
