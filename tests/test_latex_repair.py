@@ -12,7 +12,7 @@ import os
 # Ensure the project root is on sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from agent.feedback.latex_repair import LatexFormatRepair
+from agent.feedback.latex_repair import LatexFormatRepair  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

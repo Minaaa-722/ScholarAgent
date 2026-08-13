@@ -36,7 +36,7 @@ class SearchConfig:
     ss_year_segments: list[dict] = field(default_factory=lambda: [
         {"start": 2025, "end": 2026, "min_citation_count": 0, "label": "frontier"},
         {"start": 2022, "end": 2024, "min_citation_count": 3, "label": "mid"},
-        {"start": 0,    "end": 2021, "min_citation_count": 5, "label": "foundational"},
+        {"start": 0, "end": 2021, "min_citation_count": 5, "label": "foundational"},
     ])
     ss_frontier_max_results: int = 30
     ss_mid_max_results: int = 20

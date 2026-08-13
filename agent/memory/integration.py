@@ -1,7 +1,7 @@
 import os
 import uuid
 import time
-from typing import Any, Optional
+from typing import Any
 
 from agent.core.pipeline import TaskInfo
 from agent.memory.session import SessionMemory

@@ -8,7 +8,10 @@ def test_filter_keep_strong():
     from agent.tools.relevance import RelevanceFilter
 
     llm = MockLLM(fixed_response=json.dumps({
-        "judgments": [{"index": 1, "title": "Core Paper", "relevance": "strong", "confidence": 0.95, "reason": "Direct match"}]
+        "judgments": [
+            {"index": 1, "title": "Core Paper", "relevance": "strong",
+             "confidence": 0.95, "reason": "Direct match"},
+        ]
     }))
     config = SearchConfig()
     config.relevance_keyword_filter_enabled = False  # 兼容旧测试
@@ -23,7 +26,10 @@ def test_filter_keep_weak():
     from agent.tools.relevance import RelevanceFilter
 
     llm = MockLLM(fixed_response=json.dumps({
-        "judgments": [{"index": 1, "title": "Peripheral", "relevance": "weak", "confidence": 0.7, "reason": "Related work"}]
+        "judgments": [
+            {"index": 1, "title": "Peripheral", "relevance": "weak",
+             "confidence": 0.7, "reason": "Related work"},
+        ]
     }))
     config = SearchConfig()
     config.relevance_keyword_filter_enabled = False
@@ -38,7 +44,10 @@ def test_filter_remove_irrelevant_high_confidence():
     from agent.tools.relevance import RelevanceFilter
 
     llm = MockLLM(fixed_response=json.dumps({
-        "judgments": [{"index": 1, "title": "Unrelated", "relevance": "irrelevant", "confidence": 0.9, "reason": "Different field"}]
+        "judgments": [
+            {"index": 1, "title": "Unrelated", "relevance": "irrelevant",
+             "confidence": 0.9, "reason": "Different field"},
+        ]
     }))
     config = SearchConfig()
     config.relevance_keyword_filter_enabled = False
@@ -53,7 +62,10 @@ def test_filter_keep_irrelevant_low_confidence():
     from agent.tools.relevance import RelevanceFilter
 
     llm = MockLLM(fixed_response=json.dumps({
-        "judgments": [{"index": 1, "title": "Ambiguous", "relevance": "irrelevant", "confidence": 0.4, "reason": "Uncertain"}]
+        "judgments": [
+            {"index": 1, "title": "Ambiguous", "relevance": "irrelevant",
+             "confidence": 0.4, "reason": "Uncertain"},
+        ]
     }))
     config = SearchConfig()
     config.relevance_keyword_filter_enabled = False
@@ -69,7 +81,10 @@ def test_filter_no_abstract_cap_confidence():
     from agent.tools.relevance import RelevanceFilter
 
     llm = MockLLM(fixed_response=json.dumps({
-        "judgments": [{"index": 1, "title": "No Abstract", "relevance": "strong", "confidence": 0.95, "reason": "Looks good"}]
+        "judgments": [
+            {"index": 1, "title": "No Abstract", "relevance": "strong",
+             "confidence": 0.95, "reason": "Looks good"},
+        ]
     }))
     config = SearchConfig()
     config.relevance_keyword_filter_enabled = False
@@ -131,7 +146,10 @@ def test_strong_kept():
     from agent.tools.relevance import RelevanceFilter
 
     llm = MockLLM(fixed_response=json.dumps({
-        "judgments": [{"index": 1, "title": "Core Method", "contribution_type": "strong", "confidence": 0.95, "reason": "Core method innovation"}]
+        "judgments": [
+            {"index": 1, "title": "Core Method", "contribution_type": "strong",
+             "confidence": 0.95, "reason": "Core method innovation"},
+        ]
     }))
     config = SearchConfig()
     config.relevance_keyword_filter_enabled = False
@@ -147,7 +165,10 @@ def test_weak_extension_kept():
     from agent.tools.relevance import RelevanceFilter
 
     llm = MockLLM(fixed_response=json.dumps({
-        "judgments": [{"index": 1, "title": "Extension Work", "contribution_type": "weak_extension", "confidence": 0.8, "reason": "Extends method to new domain"}]
+        "judgments": [
+            {"index": 1, "title": "Extension Work", "contribution_type": "weak_extension",
+             "confidence": 0.8, "reason": "Extends method to new domain"},
+        ]
     }))
     config = SearchConfig()
     config.relevance_keyword_filter_enabled = False
@@ -163,7 +184,10 @@ def test_weak_application_high_conf_kept():
     from agent.tools.relevance import RelevanceFilter
 
     llm = MockLLM(fixed_response=json.dumps({
-        "judgments": [{"index": 1, "title": "App Paper", "contribution_type": "weak_application", "confidence": 0.85, "reason": "Uses method for classification"}]
+        "judgments": [
+            {"index": 1, "title": "App Paper", "contribution_type": "weak_application",
+             "confidence": 0.85, "reason": "Uses method for classification"},
+        ]
     }))
     config = SearchConfig()
     config.relevance_keyword_filter_enabled = False
@@ -179,7 +203,10 @@ def test_weak_application_low_conf_kept():
     from agent.tools.relevance import RelevanceFilter
 
     llm = MockLLM(fixed_response=json.dumps({
-        "judgments": [{"index": 1, "title": "Low Conf App", "contribution_type": "weak_application", "confidence": 0.4, "reason": "Uncertain application"}]
+        "judgments": [
+            {"index": 1, "title": "Low Conf App", "contribution_type": "weak_application",
+             "confidence": 0.4, "reason": "Uncertain application"},
+        ]
     }))
     config = SearchConfig()
     config.relevance_keyword_filter_enabled = False
@@ -195,7 +222,10 @@ def test_irrelevant_high_conf_removed():
     from agent.tools.relevance import RelevanceFilter
 
     llm = MockLLM(fixed_response=json.dumps({
-        "judgments": [{"index": 1, "title": "Unrelated", "contribution_type": "irrelevant", "confidence": 0.9, "reason": "Different field"}]
+        "judgments": [
+            {"index": 1, "title": "Unrelated", "contribution_type": "irrelevant",
+             "confidence": 0.9, "reason": "Different field"},
+        ]
     }))
     config = SearchConfig()
     config.relevance_keyword_filter_enabled = False
@@ -210,7 +240,10 @@ def test_irrelevant_low_conf_downgraded():
     from agent.tools.relevance import RelevanceFilter
 
     llm = MockLLM(fixed_response=json.dumps({
-        "judgments": [{"index": 1, "title": "Ambiguous", "contribution_type": "irrelevant", "confidence": 0.4, "reason": "Uncertain"}]
+        "judgments": [
+            {"index": 1, "title": "Ambiguous", "contribution_type": "irrelevant",
+             "confidence": 0.4, "reason": "Uncertain"},
+        ]
     }))
     config = SearchConfig()
     config.relevance_keyword_filter_enabled = False
@@ -226,7 +259,10 @@ def test_no_abstract_forced_weak_application():
     from agent.tools.relevance import RelevanceFilter
 
     llm = MockLLM(fixed_response=json.dumps({
-        "judgments": [{"index": 1, "title": "No Abstract", "contribution_type": "strong", "confidence": 0.95, "reason": "Looks good"}]
+        "judgments": [
+            {"index": 1, "title": "No Abstract", "contribution_type": "strong",
+             "confidence": 0.95, "reason": "Looks good"},
+        ]
     }))
     config = SearchConfig()
     config.relevance_keyword_filter_enabled = False
@@ -403,7 +439,7 @@ class TestCache:
         # 第一个 DOI 应已被淘汰，再次调用应不命中缓存
         call_count_before = len(llm.conversation_history)
         p0 = Paper(title="Paper 0", abstract="Abstract 0", doi="10.1234/paper0")
-        result = rf.filter([p0], "topic")
+        _ = rf.filter([p0], "topic")
         # 应调用 LLM（缓存未命中），且结果应为 "Paper X"（MockLLM 固定）
         assert len(llm.conversation_history) == call_count_before + 1
 
@@ -520,7 +556,10 @@ class TestKeywordPreFilter:
         from agent.tools.relevance import RelevanceFilter
 
         llm = MockLLM(fixed_response=json.dumps({
-            "judgments": [{"index": 1, "title": "Edge Detection Paper", "contribution_type": "strong", "confidence": 0.95}]
+            "judgments": [
+                {"index": 1, "title": "Edge Detection Paper", "contribution_type": "strong",
+                 "confidence": 0.95},
+            ]
         }))
         config = SearchConfig()
         config.relevance_keyword_filter_enabled = True
@@ -551,7 +590,10 @@ class TestKeywordPreFilter:
 
         # 使用一个不会抛出异常的 LLM（但预过滤应在 LLM 之前拦截）
         llm = MockLLM(fixed_response=json.dumps({
-            "judgments": [{"index": 1, "title": "Quantum Computing in Space", "contribution_type": "irrelevant", "confidence": 0.9}]
+            "judgments": [
+                {"index": 1, "title": "Quantum Computing in Space",
+                 "contribution_type": "irrelevant", "confidence": 0.9},
+            ]
         }))
         config = SearchConfig()
         config.relevance_keyword_filter_enabled = True
@@ -568,7 +610,10 @@ class TestKeywordPreFilter:
         from agent.tools.relevance import RelevanceFilter
 
         llm = MockLLM(fixed_response=json.dumps({
-            "judgments": [{"index": 1, "title": "Astronomical Object Detection", "contribution_type": "irrelevant", "confidence": 0.9}]
+            "judgments": [
+                {"index": 1, "title": "Astronomical Object Detection",
+                 "contribution_type": "irrelevant", "confidence": 0.9},
+            ]
         }))
         config = SearchConfig()
         config.relevance_keyword_filter_enabled = False
@@ -599,7 +644,10 @@ class TestKeywordPreFilter:
 
         # 这个测试验证预过滤不会因为停用词而误保留
         llm = MockLLM(fixed_response=json.dumps({
-            "judgments": [{"index": 1, "title": "Astronomy Stars", "contribution_type": "irrelevant", "confidence": 0.9}]
+            "judgments": [
+                {"index": 1, "title": "Astronomy Stars", "contribution_type": "irrelevant",
+                 "confidence": 0.9},
+            ]
         }))
         config = SearchConfig()
         config.relevance_keyword_filter_enabled = True

@@ -4,9 +4,9 @@ import time
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
-from typing import Optional
-
 from agent.tools.base import Tool, ToolResult
+from agent.core.config import SearchConfig
+from agent.tools.models import Paper
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,10 @@ class ArxivSearch(Tool):
         search_parts = [f"{search_field}:{urllib.parse.quote(query)}"]
 
         # Add arXiv category filter for CS/AI fields
-        cs_categories = ["cs.AI", "cs.LG", "cs.CV", "cs.CL", "cs.IR", "cs.NE", "cs.MA", "cs.SE", "cs.DB", "cs.CR", "cs.DC"]
+        cs_categories = [
+            "cs.AI", "cs.LG", "cs.CV", "cs.CL", "cs.IR",
+            "cs.NE", "cs.MA", "cs.SE", "cs.DB", "cs.CR", "cs.DC",
+        ]
         category_filter = "+OR+".join(f"cat:{cat}" for cat in cs_categories)
         search_parts.append(f"({category_filter})")
 
@@ -353,7 +356,6 @@ def dual_channel_arxiv_search(
     config: "SearchConfig | None" = None,
 ) -> list["Paper"]:
     """arXiv 双通道检索：ti 精准 + abs 召回。"""
-    from agent.tools.models import Paper
 
     quoted = auto_quote_terms(query)
     papers: list[Paper] = []
@@ -431,7 +433,6 @@ class FallbackManager:
         keywords: list[str],
     ) -> list["Paper"]:
         """Phase 6 Fallback：论文数 < 10 时触发。"""
-        from agent.tools.models import Paper
 
         logger.warning(
             "Phase6 fallback triggered: %d papers < %d",
@@ -486,7 +487,6 @@ class FallbackManager:
 
         Fix 4：仅 arXiv all: 单通道，max_results=20。
         """
-        from agent.tools.models import Paper
 
         logger.warning(
             "Phase7 fallback triggered: %d papers < %d",
@@ -531,7 +531,6 @@ def segmented_ss_search(
     Each segment gets its own year range and minCitationCount.
     Papers are tagged with hit_channel = "ss_frontier", "ss_mid", "ss_foundational".
     """
-    from agent.tools.models import Paper
 
     all_papers: list[Paper] = []
     for segment in config.ss_year_segments:

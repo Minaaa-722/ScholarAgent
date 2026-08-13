@@ -1,4 +1,3 @@
-import json
 import logging
 import threading
 import time
@@ -6,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 from agent.core.state import AgentState, StateMachine
-from agent.core.llm import LLMBase
+from agent.core.llm import LLMBase, LLMResponse
 from agent.core.pipeline import PipelineOrchestrator, PipelineResult
 from agent.feedback.base import ValidationResult
 from agent.feedback.aggregator import FeedbackAggregator
@@ -284,12 +283,12 @@ class Harness:
     def get_task_info(self) -> dict:
         details = {}
         if self._plan:
-            lines = [l.strip() for l in self._plan.split("\n") if l.strip()]
-            preview_lines = [l for l in lines if len(l) > 10][:5]
+            lines = [line.strip() for line in self._plan.split("\n") if line.strip()]
+            preview_lines = [line for line in lines if len(line) > 10][:5]
             details["plan"] = {
                 "summary": "Research plan generated",
                 "preview": preview_lines,
-                "section_count": sum(1 for l in lines if l.startswith(("\\section", "- **", "###"))),
+                "section_count": sum(1 for line in lines if line.startswith(("\\section", "- **", "###"))),
             }
         if self._papers:
             paper_list = []
@@ -668,10 +667,9 @@ class Harness:
             line = line.strip().strip('"').strip("'").strip("-").strip()
             # Skip lines that look like conversational text (too long, start with common phrases)
             if (line
-                and len(line) < 200
-                and not line.lower().startswith(("here", "sure", "ok", "i'll", "let", "the", "for", "of course"))
-                and not line.startswith(("1.", "2.", "3.", "-", "*"))
-            ):
+                    and len(line) < 200
+                    and not line.lower().startswith(("here", "sure", "ok", "i'll", "let", "the", "for", "of course"))
+                    and not line.startswith(("1.", "2.", "3.", "-", "*"))):
                 queries.append(line)
 
         # Fallback: use topic and keyword combinations
@@ -845,7 +843,8 @@ class Harness:
         )
 
         sys_prompt = (
-            "You are an academic writing assistant specializing in computer science and artificial intelligence surveys. "
+            "You are an academic writing assistant specializing in computer science "
+            "and artificial intelligence surveys. "
             f"{writing_instruction}\n\n{ieeetran_format_instructions}"
         )
         user_msg = (
@@ -1031,7 +1030,6 @@ class Harness:
     # ------------------------------------------------------------------
     def _safe_llm_call(self, system_prompt: str, user_message: str, use_tools: bool = False) -> "LLMResponse":
         """Call LLM with optional tool definitions."""
-        from agent.core.llm import LLMResponse
         try:
             tools = TOOL_DEFINITIONS if use_tools else None
             return self.llm.generate(system_prompt, user_message, tools=tools)

@@ -84,7 +84,10 @@ def test_retrieve_papers_returns_list_of_dicts():
 
         # Mock RelevanceFilter to keep all papers
         with patch.object(orch.llm, "generate", return_value=MagicMock(
-            text='{"judgments": [{"index": 1, "title": "Paper 1", "relevance": "strong", "confidence": 0.9}, {"index": 2, "title": "Paper 2", "relevance": "weak", "confidence": 0.7}, {"index": 3, "title": "Paper 3", "relevance": "strong", "confidence": 0.95}]}'
+            text='{"judgments": [{"index": 1, "title": "Paper 1", "relevance": "strong", '
+            '"confidence": 0.9}, {"index": 2, "title": "Paper 2", "relevance": "weak", '
+            '"confidence": 0.7}, {"index": 3, "title": "Paper 3", "relevance": "strong", '
+            '"confidence": 0.95}]}'
         )):
             result = orch._retrieve_papers()
 
@@ -191,7 +194,10 @@ def test_retrieve_papers_uses_merge_results():
             nonlocal merge_called
             merge_called = True
             assert "results" in params, "MergeResults should receive 'results' key"
-            return ToolResult(success=True, data={"papers": params["results"][0]["papers"], "total": len(params["results"][0]["papers"])})
+            return ToolResult(success=True, data={
+                "papers": params["results"][0]["papers"],
+                "total": len(params["results"][0]["papers"]),
+            })
 
         merge_mock = MagicMock()
         merge_mock.name = "merge_results"

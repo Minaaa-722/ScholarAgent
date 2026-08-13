@@ -101,7 +101,10 @@ async def test_get_papers_with_data(client, test_harness):
     """Returns paper list when papers exist."""
     test_harness._papers = [
         {"title": "Paper One", "authors": ["Alice"], "year": "2023", "citation_count": 10, "arxiv_id": "2301.001"},
-        {"title": "Paper Two", "authors": ["Bob", "Charlie"], "year": "2024", "citation_count": 5, "source": "semantic_scholar"},
+        {
+            "title": "Paper Two", "authors": ["Bob", "Charlie"], "year": "2024",
+            "citation_count": 5, "source": "semantic_scholar",
+        },
     ]
     response = await client.get("/api/survey/papers")
     assert response.status_code == 200
