@@ -234,3 +234,44 @@ def test_fallback_phase6_dedup():
     papers = [Paper(title="Duplicate Paper")]
     result = mgr.fallback_phase6(papers, "topic", ["keyword"])
     assert len(result) == 1  # dedup
+
+
+def test_merge_results_multi_hit():
+    """MergeResults 合并 hit_channels 并记录 multi_hit 日志."""
+    from agent.tools.retrieval import MergeResults
+
+    results = [
+        {
+            "source": "arxiv",
+            "papers": [
+                {"title": "Paper A", "authors": [], "year": 2024, "arxiv_id": "2401.00001",
+                 "source": "arxiv", "url": "", "categories": [], "citation_count": 5,
+                 "doi": "", "abstract": "Abstract A", "hit_channels": ["arxiv_ti"]},
+            ],
+        },
+        {
+            "source": "semantic_scholar",
+            "papers": [
+                {"title": "Paper A", "authors": [], "year": 2024, "arxiv_id": "2401.00001",
+                 "source": "semantic_scholar", "url": "", "venue": "CVPR",
+                 "citation_count": 10, "doi": "10.1234/paper-a",
+                 "abstract": "Abstract A", "hit_channels": ["ss_query"]},
+            ],
+        },
+    ]
+
+    result = MergeResults().execute({"results": results})
+    assert result.success
+    assert result.data["total"] == 1  # deduped
+
+    paper = result.data["papers"][0]
+    # hit_channels merged
+    assert set(paper["hit_channels"]) == {"arxiv_ti", "ss_query"}
+    # citation_count takes max
+    assert paper["citation_count"] == 10
+    # venue from semantic_scholar
+    assert paper["venue"] == "CVPR"
+    # doi from semantic_scholar
+    assert paper["doi"] == "10.1234/paper-a"
+    # source becomes "merged"
+    assert paper["source"] == "merged"

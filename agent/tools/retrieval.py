@@ -6,7 +6,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from typing import Optional
 
-from agent.tools.base import Tool, ToolResult, _dedup_by_title
+from agent.tools.base import Tool, ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -245,7 +245,7 @@ class MergeResults(Tool):
         for r in results:
             all_papers.extend(r.get("papers", []))
 
-        # Dedup by DOI first, then by title
+        # Dedup by DOI first, then merge metadata for title duplicates
         seen_doi: set[str] = set()
         unique: list[dict] = []
         for p in all_papers:
@@ -256,10 +256,8 @@ class MergeResults(Tool):
                 seen_doi.add(doi)
             unique.append(p)
 
-        # Secondary dedup by title for papers without DOI
-        title_deduped, _ = _dedup_by_title(unique)
-        # Merge metadata: prefer more complete fields
-        merged = self._merge_metadata(title_deduped)
+        # Merge metadata (groups by title, merges fields, dedups)
+        merged = self._merge_metadata(unique)
 
         return ToolResult(success=True, data={
             "papers": merged,
@@ -300,7 +298,23 @@ class MergeResults(Tool):
                 if other.get("source") == "arxiv" and other.get("arxiv_id"):
                     base["arxiv_id"] = other["arxiv_id"]
                 base["source"] = "merged"
+
+                # Merge hit_channels
+                base_channels = set(base.get("hit_channels", []))
+                other_channels = set(other.get("hit_channels", []))
+                base["hit_channels"] = list(base_channels | other_channels)
+
             merged.append(base)
+
+        # Multi-hit logging
+        hit_counts = {}
+        for p in merged:
+            channels = p.get("hit_channels", [])
+            if channels:
+                n = len(channels)
+                hit_counts[n] = hit_counts.get(n, 0) + 1
+        if hit_counts:
+            logger.info("multi_hit counts: %s", hit_counts)
 
         return merged
 
