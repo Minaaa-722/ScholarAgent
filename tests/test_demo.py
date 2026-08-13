@@ -23,6 +23,8 @@ Run:
 # ---------------------------------------------------------------------------
 # Demo 1: Guardrail Interception
 # ---------------------------------------------------------------------------
+
+
 def test_demo_guardrail_intercepts_dangerous_action():
     """OpSafety guardrail intercepts 'rm -rf /' and returns REQUIRE_APPROVAL."""
     from agent.guardrails.op_safety import OpSafety

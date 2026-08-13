@@ -28,10 +28,6 @@ from agent.evidence.context_retriever import (
     ContextRetriever,
     EvidenceContextBuilder,
 )
-from agent.evidence.citation_store import CitationEntry, CitationStore
-from agent.evidence.citation_anchor_store import CitationAnchor, CitationAnchorStore
-from agent.evidence.citation_injector import CitationInjector
-from agent.evidence.table_generator import BenchmarkTableGenerator
 from agent.core.llm import MockLLM
 from agent.feedback.base import ValidationResult
 
@@ -201,7 +197,10 @@ class TestClaimContextBuilder:
         claims = []
         for i in range(50):
             claims.append(
-                Claim(claim=f"Long claim number {i} with some padding text to make it realistic", category="architecture", confidence=0.9)
+                Claim(
+                    claim=f"Long claim number {i} with some padding text to make it realistic",
+                    category="architecture", confidence=0.9,
+                )
             )
         store.add_claims(claims)
         store.mark_verified([c.claim for c in claims])
@@ -217,7 +216,10 @@ class TestClaimExtractor:
     def test_extract_from_analysis(self):
         """MockLLM returns a valid JSON response, extractor parses it."""
         response_json = json.dumps([
-            {"claim": "Qwen2-VL uses dynamic resolution", "category": "architecture", "paper_title": "Qwen2-VL", "confidence": 0.9},
+            {
+                "claim": "Qwen2-VL uses dynamic resolution", "category": "architecture",
+                "paper_title": "Qwen2-VL", "confidence": 0.9,
+            },
             {"claim": "MMLU score: 85.3%", "category": "benchmark", "paper_title": "Qwen2-VL", "confidence": 0.8},
         ])
         llm = MockLLM(fixed_response=response_json)
@@ -293,7 +295,10 @@ class TestClaimVerifier:
             Claim(claim="MMLU score 85.3%", category="benchmark", paper_id="p1", confidence=0.8),
         ])
         papers = [
-            {"title": "Test Paper", "arxiv_id": "p1", "paper_id": "p1", "abstract": "This paper uses dynamic resolution and achieves 85.3% on MMLU."},
+            {
+                "title": "Test Paper", "arxiv_id": "p1", "paper_id": "p1",
+                "abstract": "This paper uses dynamic resolution and achieves 85.3% on MMLU.",
+            },
         ]
         verifier = ClaimVerifier(llm)
         count = verifier.verify_all(store, papers)
@@ -610,7 +615,10 @@ class TestPipelineEvidenceIntegration:
         from agent.guardrails.manager import GuardrailManager
 
         response_json = json.dumps([
-            {"claim": "Uses dynamic resolution", "category": "architecture", "paper_title": "Test Paper", "confidence": 0.9},
+            {
+                "claim": "Uses dynamic resolution", "category": "architecture",
+                "paper_title": "Test Paper", "confidence": 0.9,
+            },
         ])
         llm = MockLLM(fixed_response=response_json)
         orch = PipelineOrchestrator(
@@ -622,14 +630,16 @@ class TestPipelineEvidenceIntegration:
             latex_repair=None,
         )
         orch._analysis = "Qwen2-VL uses dynamic resolution."
-        papers = [{"title": "Test Paper", "paper_id": "test2024", "arxiv_id": "test2024", "abstract": "Uses dynamic resolution."}]
+        papers = [{
+            "title": "Test Paper", "paper_id": "test2024", "arxiv_id": "test2024",
+            "abstract": "Uses dynamic resolution.",
+        }]
         orch._extract_and_verify_claims(papers)
         assert orch._evidence_store.claim_count() > 0
 
     def test_evidence_context_in_writing(self):
         """Evidence context is injected into the user message in _write_survey."""
         from agent.core.pipeline import PipelineOrchestrator, HarnessConfig
-        from agent.core.state import AgentState, StateMachine
         from agent.tools.registry import ToolRegistry
         from agent.guardrails.manager import GuardrailManager
 
@@ -654,7 +664,7 @@ class TestPipelineEvidenceIntegration:
         orch._plan = "\\section{Introduction}\n\\section{Methods}"
         orch._papers = [{"title": "Test Paper", "authors": ["Author A"], "year": 2024}]
 
-        result = orch._write_survey(analysis="Test analysis", round_num=0)
+        _ = orch._write_survey(analysis="Test analysis", round_num=0)
         # Verify the LLM was called with evidence context
         assert len(llm.conversation_history) > 0
         last_user_msg = llm.conversation_history[-1][1]
@@ -891,9 +901,15 @@ class TestChunkFilter:
     def test_chunk_filter(self):
         """ChunkFilter filters by category keywords."""
         chunks = [
-            PDFChunk(paper_id="p1", chunk_id="p1_p1", page_number=1, content="The transformer architecture uses attention."),
+            PDFChunk(
+                paper_id="p1", chunk_id="p1_p1", page_number=1,
+                content="The transformer architecture uses attention.",
+            ),
             PDFChunk(paper_id="p1", chunk_id="p1_p2", page_number=2, content="The dataset contains 1M images."),
-            PDFChunk(paper_id="p1", chunk_id="p1_p3", page_number=3, content="Future work includes addressing this limitation."),
+            PDFChunk(
+                paper_id="p1", chunk_id="p1_p3", page_number=3,
+                content="Future work includes addressing this limitation.",
+            ),
         ]
         cf = ChunkFilter()
         arch_chunks = cf.filter(chunks, "architecture")
@@ -958,7 +974,10 @@ class TestEvidenceExtractor:
         llm = MockLLM(fixed_response=response_json)
         extractor = EvidenceExtractor(llm)
         chunks = [
-            PDFChunk(paper_id="paper123", chunk_id="paper123_p1", page_number=1, content="The transformer architecture uses attention"),
+            PDFChunk(
+                paper_id="paper123", chunk_id="paper123_p1", page_number=1,
+                content="The transformer architecture uses attention",
+            ),
         ]
         refs = extractor.extract(chunks)
         assert len(refs) == 1
@@ -1026,7 +1045,10 @@ class TestEvidenceExtractor:
         llm = MockLLM(fixed_response=response)
         extractor = EvidenceExtractor(llm)
         chunks = [
-            PDFChunk(paper_id="paper123", chunk_id="paper123_p1", page_number=1, content="The transformer architecture uses attention"),
+            PDFChunk(
+                paper_id="paper123", chunk_id="paper123_p1", page_number=1,
+                content="The transformer architecture uses attention",
+            ),
         ]
         refs = extractor.extract(chunks)
         assert len(refs) == 1
@@ -1547,7 +1569,11 @@ class TestBenchmarkVerifier:
         )
         verifier = BenchmarkVerifier()
         assert verifier.verify_record(record) is True
-        assert verifier.verify_record(record, {"title": "Model X Paper", "paper_id": "p1", "abstract": "Model X achieves 88.5% on MMLU."}) is True
+        assert verifier.verify_record(
+            record,
+            {"title": "Model X Paper", "paper_id": "p1",
+             "abstract": "Model X achieves 88.5% on MMLU."},
+        ) is True
 
     def test_benchmark_verifier_rejects_implausible_score(self):
         """Rejects record with implausible score."""
@@ -1762,8 +1788,14 @@ class TestEvidenceRanker:
         # Benchmarks — verified first
         ref_p1 = EvidenceReference(paper_id="p1")
         benchmarks = [
-            BenchmarkRecord(id="b1", model_name="M1", benchmark_name="B1", metric="acc", score="90", source=ref_p1, verified=False),
-            BenchmarkRecord(id="b2", model_name="M2", benchmark_name="B2", metric="acc", score="80", source=ref_p1, verified=True),
+            BenchmarkRecord(
+                id="b1", model_name="M1", benchmark_name="B1", metric="acc",
+                score="90", source=ref_p1, verified=False,
+            ),
+            BenchmarkRecord(
+                id="b2", model_name="M2", benchmark_name="B2", metric="acc",
+                score="80", source=ref_p1, verified=True,
+            ),
         ]
         ranked_b = ranker.rank_benchmarks(benchmarks)
         assert len(ranked_b) == 2
@@ -1816,7 +1848,10 @@ class TestContextRetriever:
         benchmark_store = BenchmarkStore()
         ref_p1 = EvidenceReference(paper_id="p1", excerpt="MMLU score 85.3%")
         benchmark_store.add_records([
-            BenchmarkRecord(id="b1", model_name="Qwen2-VL", benchmark_name="MMLU", metric="accuracy", score="85.3", source=ref_p1, verified=True),
+            BenchmarkRecord(
+                id="b1", model_name="Qwen2-VL", benchmark_name="MMLU",
+                metric="accuracy", score="85.3", source=ref_p1, verified=True,
+            ),
         ])
 
         knowledge_base = PaperKnowledgeBase()
@@ -1934,7 +1969,10 @@ class TestEvidenceContextBuilder:
         )
         context = EvidenceContext(
             claims=[
-                Claim(claim="Uses dynamic resolution", category="architecture", paper_id="p1", confidence=0.9, verified=True),
+                Claim(
+                    claim="Uses dynamic resolution", category="architecture",
+                    paper_id="p1", confidence=0.9, verified=True,
+                ),
             ],
             benchmarks=[
                 BenchmarkRecord(
@@ -2027,7 +2065,7 @@ class TestPipelineEvidenceGroundingFlow:
 
     def test_orchestrator_evidence_grounding_flow(self):
         """Full pipeline integration test: stores, extractors, context."""
-        from agent.core.pipeline import PipelineOrchestrator, HarnessConfig, TaskInfo
+        from agent.core.pipeline import PipelineOrchestrator, HarnessConfig
         from agent.tools.registry import ToolRegistry
         from agent.guardrails.manager import GuardrailManager
         from agent.core.llm import MockLLM
@@ -2189,7 +2227,7 @@ class TestPipelineEvidenceGroundingFlow:
 
     def test_orchestrator_clear_on_run_pipeline(self):
         """Verify that run_pipeline() clears all new stores."""
-        from agent.core.pipeline import PipelineOrchestrator, HarnessConfig, TaskInfo
+        from agent.core.pipeline import PipelineOrchestrator, HarnessConfig
         from agent.tools.registry import ToolRegistry
         from agent.guardrails.manager import GuardrailManager
         from agent.core.llm import MockLLM
@@ -2197,7 +2235,6 @@ class TestPipelineEvidenceGroundingFlow:
         from agent.evidence.evidence_store import Claim
         from agent.evidence.benchmark_store import BenchmarkRecord
         from agent.evidence.paper_knowledge import PaperKnowledge
-        from agent.core.state import StateMachine
 
         llm = MockLLM(fixed_response="\\section{Test}\nContent")
         orch = PipelineOrchestrator(

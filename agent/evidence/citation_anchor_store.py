@@ -6,7 +6,7 @@ can associate each claim with the correct BibTeX citation key.
 """
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from agent.evidence.citation_store import CitationStore

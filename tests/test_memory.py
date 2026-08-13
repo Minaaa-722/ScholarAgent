@@ -1,4 +1,3 @@
-import pytest
 import json
 import os
 from agent.memory.session import SessionMemory
@@ -102,7 +101,10 @@ def test_memory_integration_save_task_history_with_papers():
     task = TaskInfo(topic="Test", keywords=["ai"], goal="Goal")
     raw_papers = [
         {"title": "Paper One", "authors": ["Alice"], "year": "2023", "citation_count": 10, "arxiv_id": "2301.001"},
-        {"title": "Paper Two", "authors": ["Bob", "Charlie"], "year": "2024", "citation_count": 5, "source": "semantic_scholar"},
+        {
+            "title": "Paper Two", "authors": ["Bob", "Charlie"], "year": "2024",
+            "citation_count": 5, "source": "semantic_scholar",
+        },
     ]
     result = {
         "status": "complete",

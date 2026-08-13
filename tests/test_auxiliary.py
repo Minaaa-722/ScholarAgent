@@ -5,7 +5,6 @@ Covers:
   - Edge cases: empty query, missing params, special characters
   - Return structure verification
 """
-import pytest
 from agent.tools.auxiliary import WebSearch, CheckArxivUpdates, ShellExec
 from agent.tools.base import ToolResult
 

@@ -1,6 +1,5 @@
 import json
 import logging
-import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from typing import Optional
 
