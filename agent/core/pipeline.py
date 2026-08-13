@@ -10,15 +10,16 @@ from typing import Any, Callable, Optional
 from agent.core.state import AgentState, StateMachine
 from agent.core.llm import LLMBase, LLMResponse
 from agent.core.config import SearchConfig
-from agent.tools.prompts import SEARCH_QUERY_PROMPT
+from agent.tools.prompts import SEARCH_QUERY_PROMPT, METHODOLOGY_QUERY_PROMPT
 from agent.tools.models import Paper
 from agent.tools.retrieval import (
     dual_channel_arxiv_search,
     infer_arxiv_category,
     FallbackManager,
+    segmented_ss_search,
 )
 from agent.tools.relevance import RelevanceFilter
-from agent.tools.processing import rank_papers
+from agent.tools.processing import rank_papers, stratified_sample
 from agent.evidence.evidence_store import EvidenceStore, ClaimContextBuilder
 from agent.evidence.claim_extractor import ClaimExtractor
 from agent.evidence.verifier import ClaimVerifier
@@ -470,7 +471,7 @@ class PipelineOrchestrator:
         return resp.text
 
     def _generate_search_queries(self, topic: str, keywords: list[str]) -> list[str]:
-        """使用 LLM 生成检索 query（新版 Prompt）。"""
+        """使用 LLM 生成检索 query（Phase B：具体方法/模型查询）。"""
         sys_prompt = SEARCH_QUERY_PROMPT
         user_msg = f"Survey topic: {topic}\nKeywords: {', '.join(keywords)}\n\nGenerate 5 search queries."
 
@@ -488,6 +489,25 @@ class PipelineOrchestrator:
         if keywords:
             fallback.extend(keywords[:4])
         logger.info("Using fallback queries: %s", fallback)
+        return fallback
+
+    def _generate_methodology_queries(self, topic: str, keywords: list[str]) -> list[str]:
+        """使用 LLM 生成方法论检索 query（Phase A：方法类别/设计空间查询）。"""
+        sys_prompt = METHODOLOGY_QUERY_PROMPT
+        user_msg = f"Survey topic: {topic}\nKeywords: {', '.join(keywords)}\n\nGenerate 5 methodology search queries."
+
+        try:
+            resp = self._safe_llm_call(sys_prompt, user_msg)
+            raw_lines = resp.text.strip().split("\n")
+            queries = [l.strip() for l in raw_lines if l.strip() and "->" in l]
+            if queries:
+                logger.info("Generated %d methodology queries: %s", len(queries), queries)
+                return queries
+        except Exception as e:
+            logger.warning("LLM methodology query generation failed: %s", e)
+
+        fallback = [f"{topic} methodology", f"{topic} approach", f"{topic} technique", topic]
+        logger.info("Using fallback methodology queries: %s", fallback)
         return fallback
 
     def _expand_and_dedup_queries(self, raw_queries: list[str], topic: str, keywords: list[str]) -> list[str]:
@@ -519,28 +539,30 @@ class PipelineOrchestrator:
         return queries
 
     def _retrieve_papers(self) -> list[dict]:
-        """重构后的检索管线（使用新模块）。"""
+        """重构后的检索管线（使用新模块：Phase A 方法论 + Phase B 具体 + 分段 SS + 分层采样）。"""
         topic = self._task.topic
         keywords = self._task.keywords or [topic]
         config = SearchConfig()
 
-        raw_queries = self._generate_search_queries(topic, keywords)
-        queries = self._expand_and_dedup_queries(raw_queries, topic, keywords)
+        # Phase A: 方法论查询（方法类别 / 设计空间）
+        raw_method_queries = self._generate_methodology_queries(topic, keywords)
+        method_queries = self._expand_and_dedup_queries(raw_method_queries, topic, keywords)
+
+        # Phase B: 具体方法/模型查询
+        raw_specific_queries = self._generate_search_queries(topic, keywords)
+        specific_queries = self._expand_and_dedup_queries(raw_specific_queries, topic, keywords)
+
+        all_queries = method_queries + specific_queries
 
         arxiv_tool = self.tools.get("arxiv_search")
         ss_tool = self.tools.get("semantic_scholar_search")
         cat_filter = infer_arxiv_category(topic, topic, config.domain_cat_map, config.domain_fallback_cat)
 
         all_papers: list[Paper] = []
-        for q in queries:
+        for q in all_queries:
             all_papers += dual_channel_arxiv_search(arxiv_tool, q, cat_filter, config)
-            ss_result = ss_tool.execute({"query": q, "max_results": config.ss_max_results})
-            if ss_result.success:
-                for p_data in ss_result.data.get("papers", []):
-                    paper = Paper.from_dict(p_data)
-                    paper.hit_channels.append("semantic_scholar")
-                    paper.search_source_queries.append(q)
-                    all_papers.append(paper)
+            if ss_tool:
+                all_papers += segmented_ss_search(ss_tool, q, config, topic)
 
         merge_data = [p.to_dict() for p in all_papers]
         merge_tool = self.tools.get("merge_results")
@@ -553,6 +575,8 @@ class PipelineOrchestrator:
 
         papers = rank_papers(papers, config)
 
+        papers = stratified_sample(papers, config)
+
         fallback = FallbackManager(arxiv_tool, ss_tool, config)
         if len(papers) < config.fallback_phase6_min_papers:
             papers = fallback.fallback_phase6(papers, topic, keywords)
@@ -562,7 +586,7 @@ class PipelineOrchestrator:
             papers = rank_papers(papers, config)
 
         self._papers = [p.to_dict() for p in papers[:self._task.max_papers]]
-        self._retrieved_queries = queries
+        self._retrieved_queries = all_queries
 
         # Register papers in CitationStore for citation resolution
         import logging
