@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useCallback } from "react";
 import Card from "./Card";
 
 /** Convert simple markdown patterns to readable HTML for display */
@@ -645,10 +645,20 @@ function StageProgressView({
   metrics: StageMetrics;
   currentMessage: string;
 }) {
-  // Auto-scroll to bottom
   const listRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
+
+  // Track whether the user is near the bottom of the scrollable area
+  const handleScroll = useCallback(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const threshold = 40; // px from bottom — close enough to auto-scroll
+    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+  }, []);
+
+  // Auto-scroll to bottom only if the user was already near the bottom
   useEffect(() => {
-    if (listRef.current) {
+    if (listRef.current && isNearBottomRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
   }, [messages]);
@@ -668,6 +678,7 @@ function StageProgressView({
       {/* Message list */}
       <div
         ref={listRef}
+        onScroll={handleScroll}
         style={{
           maxHeight: "240px",
           overflowY: "auto",
