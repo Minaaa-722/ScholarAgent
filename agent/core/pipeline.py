@@ -9,6 +9,16 @@ from typing import Any, Callable, Optional
 
 from agent.core.state import AgentState, StateMachine
 from agent.core.llm import LLMBase, LLMResponse
+from agent.core.config import SearchConfig
+from agent.tools.prompts import SEARCH_QUERY_PROMPT
+from agent.tools.models import Paper
+from agent.tools.retrieval import (
+    dual_channel_arxiv_search,
+    infer_arxiv_category,
+    FallbackManager,
+)
+from agent.tools.relevance import RelevanceFilter
+from agent.tools.processing import rank_papers
 from agent.evidence.evidence_store import EvidenceStore, ClaimContextBuilder
 from agent.evidence.claim_extractor import ClaimExtractor
 from agent.evidence.verifier import ClaimVerifier
@@ -459,198 +469,99 @@ class PipelineOrchestrator:
         )
         return resp.text
 
-    def _retrieve_papers(self) -> list[dict]:
-        """Search arXiv and Semantic Scholar with LLM-generated queries.
+    def _generate_search_queries(self, topic: str, keywords: list[str]) -> list[str]:
+        """使用 LLM 生成检索 query（新版 Prompt）。"""
+        sys_prompt = SEARCH_QUERY_PROMPT
+        user_msg = f"Survey topic: {topic}\nKeywords: {', '.join(keywords)}\n\nGenerate 5 search queries."
 
-        Strategy:
-          1. LLM generates 5 specific search queries from the topic + keywords
-          2. Each query searches arXiv (title-only) and Semantic Scholar (citation-sorted)
-          3. Merge + dedup results
-          4. LLM relevance filter removes off-topic papers
-          5. Sort by citation count, truncate to max_papers
-          6. If < 10 papers remain, fallback: keyword-based search with relaxed params
-        """
+        try:
+            resp = self._safe_llm_call(sys_prompt, user_msg)
+            raw_lines = resp.text.strip().split("\n")
+            queries = [l.strip() for l in raw_lines if l.strip() and "->" in l]
+            if queries:
+                logger.info("Generated %d raw queries: %s", len(queries), queries)
+                return queries
+        except Exception as e:
+            logger.warning("LLM query generation failed: %s", e)
+
+        fallback = [topic]
+        if keywords:
+            fallback.extend(keywords[:4])
+        logger.info("Using fallback queries: %s", fallback)
+        return fallback
+
+    def _expand_and_dedup_queries(self, raw_queries: list[str], topic: str, keywords: list[str]) -> list[str]:
+        """拆分"全称 -> 缩写"为独立 query，去重，补充不足（Fix 5）。"""
+        expanded_set: set[str] = set()
+        for line in raw_queries:
+            line = line.strip()
+            if "->" in line:
+                parts = [p.strip() for p in line.split("->", 1)]
+                full_name = parts[0]
+                abbreviation = parts[1] if len(parts) >= 2 else full_name
+                expanded_set.add(full_name)
+                if abbreviation.lower() != full_name.lower():
+                    expanded_set.add(abbreviation)
+            else:
+                expanded_set.add(line)
+
+        queries = list(expanded_set)
+        queries = [q for q in queries if q and len(q) < 200]
+
+        if len(queries) < 1:
+            queries = [topic]
+        if len(queries) < 2:
+            queries.append(f"{topic} survey")
+        while len(queries) < 3:
+            queries.append(" ".join(keywords[:3]))
+
+        logger.info("Expanded to %d final queries: %s", len(queries), queries)
+        return queries
+
+    def _retrieve_papers(self) -> list[dict]:
+        """重构后的检索管线（使用新模块）。"""
         topic = self._task.topic
         keywords = self._task.keywords or [topic]
-        year_start = self.config.year_start
-        year_end = self.config.year_end
+        config = SearchConfig()
 
-        # ---- Phase 1: LLM-generated search queries ----
-        sys_prompt = (
-            "You are a literature search query generator. "
-            "Generate exactly 5 concise search queries to find academic papers for a survey.\n\n"
-            "RULES:\n"
-            "- Each query must be 2-5 words, specific to a technique/method/approach name\n"
-            "- Do NOT use generic words like: deep learning, survey, review, advances, recent, progress\n"
-            "- Be specific: use concrete method names (e.g. 'EfficientNet', 'knowledge distillation', 'model pruning')\n"
-            "- Output exactly one query per line, NO numbering, NO explanation, NO conversational text\n\n"
-            "Example for topic='Efficient Transformer':\n"
-            "attention mechanism optimization\n"
-            "model quantization\n"
-            "knowledge distillation\n"
-            "mobile transformer\n"
-            "edge deployment"
-        )
-        user_msg = (
-            f"Survey topic: {topic}\n"
-            f"Keywords: {', '.join(keywords)}\n\n"
-            f"Generate 5 specific search queries."
-        )
-        resp = self._safe_llm_call(sys_prompt, user_msg)
-
-        # Parse queries with strict filtering
-        raw_lines = resp.text.strip().split("\n")
-        queries = []
-        for line in raw_lines:
-            line = line.strip().strip('"').strip("'").strip("-").strip("*").strip()
-            # Skip conversational lines
-            if (line
-                and len(line) < 100
-                and not line.lower().startswith(("here", "sure", "ok", "i'll", "let", "the", "of course", "note:", "example"))
-                and not line.lower().startswith(("1.", "2.", "3.", "4.", "5."))
-            ):
-                queries.append(line)
-
-        # Supplement if fewer than 3 valid queries
-        if len(queries) < 3:
-            queries = [topic]
-            for kw in keywords[:3]:
-                queries.append(f"{topic} {kw}")
-
-        # Deduplicate queries
-        seen_q = set()
-        unique_queries = []
-        for q in queries:
-            ql = q.lower().strip()
-            if ql not in seen_q:
-                seen_q.add(ql)
-                unique_queries.append(q)
-        queries = unique_queries[:5]
-
-        self._emit_progress(
-            "success", f"Generated {len(queries)} search queries via LLM",
-            {"queries": queries},
-        )
-
-        # ---- Phase 2: Search both sources for each query ----
-        _search_lock = threading.Lock()
-        all_results: list[dict] = []
-
-        def _search_arxiv(tool, q: str) -> None:
-            if not tool:
-                return
-            res = tool.execute({
-                "query": q, "max_results": max(50, self._task.max_papers * 2),
-                "year_start": year_start, "year_end": year_end,
-                "search_field": "ti",
-            })
-            if res.success:
-                with _search_lock:
-                    all_results.append(res.data)
-
-        def _search_ss(tool, q: str) -> None:
-            if not tool:
-                return
-            res = tool.execute({
-                "query": q, "max_results": max(50, self._task.max_papers * 2),
-                "year_start": year_start, "year_end": year_end,
-                "min_citation_count": 3,
-            })
-            if res.success:
-                with _search_lock:
-                    all_results.append(res.data)
+        raw_queries = self._generate_search_queries(topic, keywords)
+        queries = self._expand_and_dedup_queries(raw_queries, topic, keywords)
 
         arxiv_tool = self.tools.get("arxiv_search")
         ss_tool = self.tools.get("semantic_scholar_search")
+        cat_filter = infer_arxiv_category(topic, topic, config.domain_cat_map, config.domain_fallback_cat)
 
-        self._emit_progress("info", "Searching arXiv (title-only) and Semantic Scholar (by citation count)...")
+        all_papers: list[Paper] = []
         for q in queries:
-            _search_arxiv(arxiv_tool, q)
-            _search_ss(ss_tool, q)
+            all_papers += dual_channel_arxiv_search(arxiv_tool, q, cat_filter, config)
+            ss_result = ss_tool.execute({"query": q, "max_results": config.ss_max_results})
+            if ss_result.success:
+                for p_data in ss_result.data.get("papers", []):
+                    paper = Paper.from_dict(p_data)
+                    paper.hit_channels.append("semantic_scholar")
+                    paper.search_source_queries.append(q)
+                    all_papers.append(paper)
 
-        # ---- Phase 3: Merge & dedup ----
+        merge_data = [p.to_dict() for p in all_papers]
         merge_tool = self.tools.get("merge_results")
-        sort_tool = self.tools.get("sort_by_citation")
-        all_papers: list[dict] = []
+        merged = merge_tool.execute({"papers": merge_data})
+        merged_dicts = merged.data.get("papers", []) if merged.success else []
+        papers = [Paper.from_dict(p) for p in merged_dicts]
 
-        if merge_tool:
-            merged = merge_tool.execute({"results": list(all_results)})
-            if merged.success:
-                all_papers = merged.data.get("papers", [])
+        filter_module = RelevanceFilter(self.llm, config)
+        papers = filter_module.filter(papers, topic)
 
-        self._emit_progress(
-            "success", f"Merged: {len(all_papers)} unique papers from {len(queries)} queries",
-            {"papers_found": len(all_papers)},
-        )
+        papers = rank_papers(papers, config)
 
-        # ---- Phase 4: LLM relevance filter (NEW: enabled) ----
-        self._emit_progress("info", "Running LLM relevance filter...")
-        all_papers = self._filter_relevant_papers(all_papers, topic)
-        self._emit_progress(
-            "info", f"After relevance filter: {len(all_papers)} papers",
-            {"papers_after_filter": len(all_papers)},
-        )
+        fallback = FallbackManager(arxiv_tool, ss_tool, config)
+        if len(papers) < config.fallback_phase6_min_papers:
+            papers = fallback.fallback_phase6(papers, topic, keywords)
+            papers = rank_papers(papers, config)
+        if len(papers) < config.fallback_phase7_min_papers:
+            papers = fallback.fallback_phase7(papers, topic)
+            papers = rank_papers(papers, config)
 
-        # ---- Phase 5: Sort by citation count ----
-        if sort_tool and all_papers:
-            sorted_res = sort_tool.execute({"papers": all_papers})
-            if sorted_res.success:
-                all_papers = sorted_res.data.get("papers", all_papers)
-
-        # ---- Phase 6: Fallback if too few papers ----
-        if len(all_papers) < 10:
-            self._emit_progress(
-                "warning",
-                f"Only {len(all_papers)} papers after filtering — running keyword fallback search",
-            )
-            fallback_queries = []
-            for kw in keywords[:3]:
-                fallback_queries.append(f"{topic} {kw}")
-            for q in fallback_queries:
-                _search_ss(ss_tool, q)
-            if merge_tool:
-                merged = merge_tool.execute({"results": list(all_results)})
-                if merged.success:
-                    all_papers = merged.data.get("papers", [])
-            # Re-run relevance filter on expanded set
-            all_papers = self._filter_relevant_papers(all_papers, topic)
-            if sort_tool and all_papers:
-                sorted_res = sort_tool.execute({"papers": all_papers})
-                if sorted_res.success:
-                    all_papers = sorted_res.data.get("papers", all_papers)
-            self._emit_progress(
-                "success", f"After fallback: {len(all_papers)} papers",
-                {"papers_after_fallback": len(all_papers)},
-            )
-
-        # ---- Phase 7: Last-resort fallback if STILL too few ----
-        if len(all_papers) < 5:
-            self._emit_progress(
-                "warning",
-                "Still too few papers — relaxing search constraints (minCitationCount=0, year range 2018-2026)",
-            )
-            # Try with relaxed constraints on Semantic Scholar
-            for q in queries[:2]:
-                if ss_tool:
-                    res = ss_tool.execute({
-                        "query": q, "max_results": 50,
-                        "year_start": 2018, "year_end": year_end,
-                        "min_citation_count": 0,
-                    })
-                    if res.success:
-                        with _search_lock:
-                            all_results.append(res.data)
-            if merge_tool:
-                merged = merge_tool.execute({"results": list(all_results)})
-                if merged.success:
-                    all_papers = merged.data.get("papers", [])
-            all_papers = self._filter_relevant_papers(all_papers, topic)
-            if sort_tool and all_papers:
-                sorted_res = sort_tool.execute({"papers": all_papers})
-                if sorted_res.success:
-                    all_papers = sorted_res.data.get("papers", all_papers)
-
-        self._papers = all_papers[:self._task.max_papers]
+        self._papers = [p.to_dict() for p in papers[:self._task.max_papers]]
         self._retrieved_queries = queries
 
         # Register papers in CitationStore for citation resolution
@@ -662,99 +573,6 @@ class PipelineOrchestrator:
             except Exception as e:
                 _log.debug("Skipping citation registration: %s", e)
 
-        # ---- PDF Download & Evidence Extraction (parallel, limited scope) ----
-        self._pdf_chunks.clear()
-        self._evidence_refs.clear()
-        self._evidence_unavailable.clear()
-
-        import os
-        os.makedirs("output/pdfs", exist_ok=True)
-
-        # Process PDFs for all max_papers papers (by citation count)
-        pdf_limit = min(self._task.max_papers, len(self._papers))
-        papers_for_pdf = sorted(
-            self._papers, key=lambda p: p.get("citation_count", 0), reverse=True
-        )[:pdf_limit]
-        papers_with_arxiv = [p for p in papers_for_pdf if p.get("arxiv_id")]
-        total_pdfs = len(papers_with_arxiv)
-        self._emit_progress(
-            "info",
-            f"Downloading and parsing PDFs for top {total_pdfs} papers "
-            f"(by citation count, limit={self._task.max_papers})...",
-            {"papers_downloaded": 0, "papers_total": total_pdfs},
-        )
-
-        # Parallel PDF download + parse
-        _pdf_lock = threading.Lock()
-
-        def _process_pdf(paper: dict) -> None:
-            arxiv_id = paper.get("arxiv_id", "")
-            paper_id = paper.get("paper_id", arxiv_id)
-            if not arxiv_id:
-                return
-
-            pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
-            save_path = f"output/pdfs/{arxiv_id}.pdf"
-
-            try:
-                pdf_tool = self.tools.get("pdf_download")
-                if not pdf_tool:
-                    return
-
-                dl_res = pdf_tool.execute({"url": pdf_url, "save_path": save_path})
-                if not dl_res.success:
-                    with _pdf_lock:
-                        self._evidence_unavailable.add(paper_id)
-                    return
-
-                chunks = self._pdf_parser.parse(paper_id, save_path)
-                if not chunks:
-                    with _pdf_lock:
-                        self._evidence_unavailable.add(paper_id)
-                    return
-
-                with _pdf_lock:
-                    self._pdf_chunks[paper_id] = chunks
-
-            except Exception as e:
-                logger.warning("PDF processing failed for %s: %s", arxiv_id, e)
-                with _pdf_lock:
-                    self._evidence_unavailable.add(paper_id)
-
-        with ThreadPoolExecutor(max_workers=5) as ex:
-            futures = [ex.submit(_process_pdf, p) for p in papers_with_arxiv]
-            for f in as_completed(futures):
-                f.result()  # catch exceptions
-
-        downloaded_count = len(self._pdf_chunks)
-        self._emit_progress(
-            "success",
-            f"PDFs: {downloaded_count} papers downloaded and parsed "
-            f"({total_pdfs - downloaded_count} failed)",
-            {"papers_downloaded": downloaded_count, "papers_total": total_pdfs},
-        )
-
-        # Batch evidence extraction (reduces N LLM calls to ceil(N/batch_size))
-        if self._pdf_chunks:
-            self._emit_progress("info", "Extracting evidence from PDFs (batch LLM)...")
-            batch_refs = self._evidence_extractor.extract_batch(
-                dict(self._pdf_chunks), batch_size=5,
-            )
-            for pid, refs in batch_refs.items():
-                self._evidence_refs.extend(refs)
-                if refs:
-                    self._emit_progress(
-                        "success", f"Evidence: {len(refs)} refs extracted from {pid}",
-                    )
-
-        # Update metrics with final PDF count
-        self._emit_progress(
-            "info",
-            f"Evidence: {len(self._pdf_chunks)} papers with evidence, "
-            f"{len(self._evidence_unavailable)} unavailable, "
-            f"{len(self._evidence_refs)} total refs",
-            {"papers_downloaded": len(self._pdf_chunks)},
-        )
         return self._papers
 
     # ------------------------------------------------------------------
