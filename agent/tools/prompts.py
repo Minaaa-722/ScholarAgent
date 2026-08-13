@@ -49,10 +49,10 @@ SPECIAL RULES:
 - When in doubt, prefer keeping (weak + low confidence) over removing.
 
 OUTPUT FORMAT: Return a JSON object:
-{
+{{
   "judgments": [
-    {"index": 1, "title": "Exact title", "relevance": "strong|weak|irrelevant",
-     "confidence": 0.95, "reason": "Short justification"}
+    {{"index": 1, "title": "Exact title", "relevance": "strong|weak|irrelevant",
+     "confidence": 0.95, "reason": "Short justification"}}
   ]
-}
+}}
 """
