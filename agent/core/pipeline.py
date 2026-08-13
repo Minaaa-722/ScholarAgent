@@ -451,8 +451,7 @@ class PipelineOrchestrator:
             f"Topic: {topic}\n"
             f"Keywords: {keywords}\n"
             f"Goal: {goal}\n\n"
-            f"Please produce a structured outline for an IEEEtran conference-format survey paper. "
-            f"Focus on the years {self.config.year_start}?{self.config.year_end}."
+            f"Please produce a structured outline for an IEEEtran conference-format survey paper."
         )
 
         # Guardrail: rate limit check before LLM call
@@ -987,8 +986,8 @@ class PipelineOrchestrator:
             "   WRONG: ... as shown in previous work.~\\cite{key}\n"
             "7. ACRONYMS: Define all acronyms at first use.\n"
             "   Example: Test-Time Adaptation (TTA), Batch Normalization (BN).\n"
-            "8. TIME RANGE: Survey covers the period from year_start to year_end. "
-            "Works before the start year are foundational prior work.\n"
+            "8. TIME REFERENCE: The user expressed interest in the period {year_start}–{year_end}, "
+            "but this is NOT a hard constraint — include relevant works regardless of publication year.\n"
             "9. TYPOGRAPHY: Use --- for em-dash, -- for en-dash. "
             "Use `` and '' for quotes, not Unicode smart quotes.\n"
             "10. PAGE LIMIT: IEEEtran conference main body is 6 pages max. "
