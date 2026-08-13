@@ -544,7 +544,7 @@ class PipelineOrchestrator:
 
         merge_data = [p.to_dict() for p in all_papers]
         merge_tool = self.tools.get("merge_results")
-        merged = merge_tool.execute({"papers": merge_data})
+        merged = merge_tool.execute({"results": [{"papers": merge_data, "source": "all"}]})
         merged_dicts = merged.data.get("papers", []) if merged.success else []
         papers = [Paper.from_dict(p) for p in merged_dicts]
 
