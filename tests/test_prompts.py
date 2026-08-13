@@ -1,4 +1,4 @@
-from agent.tools.prompts import SEARCH_QUERY_PROMPT, RELEVANCE_JUDGE_PROMPT
+from agent.tools.prompts import SEARCH_QUERY_PROMPT, RELEVANCE_JUDGE_PROMPT, METHODOLOGY_QUERY_PROMPT
 
 
 def test_search_query_prompt_contains_arrow_format():
@@ -22,10 +22,13 @@ def test_relevance_judge_prompt_contains_topic_placeholder():
     assert "{topic}" in RELEVANCE_JUDGE_PROMPT
 
 
-def test_relevance_judge_prompt_three_levels():
-    assert "STRONG" in RELEVANCE_JUDGE_PROMPT
-    assert "WEAK" in RELEVANCE_JUDGE_PROMPT
-    assert "IRRELEVANT" in RELEVANCE_JUDGE_PROMPT
+def test_relevance_judge_prompt_has_contribution_types():
+    """RELEVANCE_JUDGE_PROMPT 应包含 4 种贡献类型."""
+    assert "strong" in RELEVANCE_JUDGE_PROMPT.lower()
+    assert "weak_extension" in RELEVANCE_JUDGE_PROMPT
+    assert "weak_application" in RELEVANCE_JUDGE_PROMPT
+    assert "irrelevant" in RELEVANCE_JUDGE_PROMPT
+    assert "contribution_type" in RELEVANCE_JUDGE_PROMPT
 
 
 def test_relevance_judge_prompt_has_confidence():
@@ -41,3 +44,34 @@ def test_relevance_judge_prompt_no_abstract_rule():
 def test_relevance_judge_prompt_json_output():
     assert "JSON" in RELEVANCE_JUDGE_PROMPT
     assert "judgments" in RELEVANCE_JUDGE_PROMPT
+
+
+def test_methodology_prompt_has_method_category_guidance():
+    """METHODOLOGY_QUERY_PROMPT 应包含方法类别引导."""
+    prompt = METHODOLOGY_QUERY_PROMPT
+    assert "method category" in prompt.lower() or "design space" in prompt.lower()
+    assert "->" in prompt
+    assert "{topic}" in prompt
+
+
+def test_relevance_prompt_has_contribution_types():
+    """RELEVANCE_JUDGE_PROMPT 应定义所有 4 种贡献类型."""
+    prompt = RELEVANCE_JUDGE_PROMPT
+    assert "strong" in prompt
+    assert "weak_extension" in prompt
+    assert "weak_application" in prompt
+    assert "irrelevant" in prompt
+    assert "contribution_type" in prompt
+
+
+def test_relevance_prompt_examples():
+    """RELEVANCE_JUDGE_PROMPT 应包含贡献类型示例."""
+    prompt = RELEVANCE_JUDGE_PROMPT
+    assert "methodological" in prompt.lower() or "core method" in prompt.lower()
+
+
+def test_relevance_prompt_uses_double_braces():
+    """RELEVANCE_JUDGE_PROMPT JSON 示例应使用 {{ }} 保格式安全."""
+    prompt = RELEVANCE_JUDGE_PROMPT
+    assert "{{" in prompt
+    assert "}}" in prompt
