@@ -4,6 +4,7 @@ from agent.core.config import SearchConfig
 
 
 import logging
+import math
 import os
 logger = logging.getLogger(__name__)
 
@@ -116,25 +117,27 @@ class FormatBibtex(Tool):
 # Paper ranking
 # ---------------------------------------------------------------------------
 def rank_papers(papers: list["Paper"], config: "SearchConfig") -> list["Paper"]:
-    """RRF + 综合加权排序。"""
+    """RRF + 综合加权排序（含贡献类型权重和指数时间衰减）。"""
     if not papers:
         return papers
 
     max_citations = max(p.citation_count for p in papers) or 1
-    current_year = 2026
+    current_year = config.rank_current_year
+
+    weight_map = {
+        "strong": config.rank_contribution_strong,
+        "weak_extension": config.rank_contribution_extension,
+        "weak_application": config.rank_contribution_application,
+    }
 
     for p in papers:
         citation_score = p.citation_count / max_citations
 
-        if p.relevance == "strong":
-            relevance_score = 1.0
-        elif p.relevance == "weak":
-            relevance_score = 0.5
-        else:
-            relevance_score = 0.0
+        ct = getattr(p, "contribution_type", p.relevance)
+        relevance_score = weight_map.get(ct, config.rank_contribution_default)
 
-        age = current_year - p.year
-        recency_score = max(0.0, 1.0 - age / 10.0) if p.year > 0 else 0.0
+        age = max(0, current_year - p.year)
+        recency_score = math.exp(-config.rank_decay_factor * age) if p.year > 0 else 0.0
 
         p.composite_score = round(
             config.rank_alpha * citation_score
@@ -178,3 +181,47 @@ def _apply_rrf(papers: list["Paper"], config: "SearchConfig") -> list["Paper"]:
         p.composite_score = round(p.composite_score * 0.7 + rrf_score * 0.3, 4)
 
     return papers
+
+
+# ---------------------------------------------------------------------------
+# Stratified sampling by year
+# ---------------------------------------------------------------------------
+def stratified_sample(papers: list["Paper"], config: "SearchConfig") -> list["Paper"]:
+    """按年份分层采样，确保年代分布均衡。
+
+    使用 config 中的配额比例：
+    - frontier (>= stratify_frontier_start): 30%
+    - mid (>= stratify_mid_start, < frontier): 40%
+    - classic (< stratify_mid_start): 30%
+    """
+    if not papers:
+        return papers
+
+    frontier = [p for p in papers if p.year >= config.stratify_frontier_start]
+    mid = [p for p in papers if config.stratify_mid_start <= p.year < config.stratify_frontier_start]
+    classic = [p for p in papers if 0 < p.year < config.stratify_mid_start]
+
+    for group in [frontier, mid, classic]:
+        group.sort(key=lambda p: p.composite_score, reverse=True)
+
+    total = len(papers)
+    frontier_limit = max(1, int(total * config.stratify_frontier_quota))
+    mid_limit = max(1, int(total * config.stratify_mid_quota))
+    classic_limit = max(1, int(total * config.stratify_classic_quota))
+
+    sampled = (
+        frontier[:frontier_limit]
+        + mid[:mid_limit]
+        + classic[:classic_limit]
+    )
+
+    sampled.sort(key=lambda p: p.composite_score, reverse=True)
+
+    logger.info(
+        "Stratified sample: frontier=%d/%d, mid=%d/%d, classic=%d/%d (total=%d)",
+        len(sampled), total,
+        len(frontier[:frontier_limit]), len(mid[:mid_limit]),
+        len(classic[:classic_limit]), len(sampled),
+    )
+
+    return sampled
