@@ -68,6 +68,33 @@ TASK: For each paper, determine its contribution type relative to the
 research topic: "{topic}"
 
 CONTRIBUTION TYPES:
+{contribution_types}
+
+CONFIDENCE SCORE (0.0 to 1.0):
+- 1.0: Absolutely certain
+- 0.8-0.9: Very confident
+- 0.6-0.7: Moderately confident
+- 0.4-0.5: Weakly confident
+- 0.0-0.3: Very uncertain
+
+SPECIAL RULES:
+- Papers WITHOUT an abstract: default to weak_application, confidence capped at 0.6.
+- When in doubt between strong and weak_extension, prefer weak_extension.
+- When in doubt between weak_extension and weak_application, prefer weak_extension.
+- weak_application with confidence < 0.6: downgrade to irrelevant and remove.
+
+OUTPUT FORMAT: Return a JSON object:
+{{
+  "judgments": [
+    {{"index": 1, "title": "Exact title",
+      "contribution_type": "strong|weak_extension|weak_application|irrelevant",
+      "confidence": 0.95{reason_field}}}
+  ]
+}}
+"""
+
+# Contribution type descriptions for detailed 4-class mode
+CONTRIBUTION_TYPES_DETAILED = """\
 - strong: The paper's PRIMARY contribution is a core METHODOLOGICAL INNOVATION
   directly addressing the topic. The paper proposes, analyzes, or fundamentally
   improves the method ITSELF. Examples: a new attention mechanism variant,
@@ -90,27 +117,18 @@ CONTRIBUTION TYPES:
 
 - irrelevant: The paper does not address the topic or addresses it only
   in passing. Completely different field or topic.
-  → REMOVE if confidence >= 0.6.
+  → REMOVE if confidence >= 0.6."""
 
-CONFIDENCE SCORE (0.0 to 1.0):
-- 1.0: Absolutely certain
-- 0.8-0.9: Very confident
-- 0.6-0.7: Moderately confident
-- 0.4-0.5: Weakly confident
-- 0.0-0.3: Very uncertain
+# Contribution type descriptions for simple 3-class mode (fast path)
+CONTRIBUTION_TYPES_SIMPLE = """\
+- relevant: The paper is directly about the topic. Its primary contribution
+  is a method, extension, or application related to the topic.
+  → KEEP — contributes to the survey.
 
-SPECIAL RULES:
-- Papers WITHOUT an abstract: default to weak_application, confidence capped at 0.6.
-- When in doubt between strong and weak_extension, prefer weak_extension.
-- When in doubt between weak_extension and weak_application, prefer weak_extension.
-- weak_application with confidence < 0.6: downgrade to irrelevant and remove.
+- weak: The paper touches on the topic but is not primarily about it.
+  The topic is used as a tool or component within a larger system.
+  → KEEP WITH LOW PRIORITY — may still provide useful context.
 
-OUTPUT FORMAT: Return a JSON object:
-{{
-  "judgments": [
-    {{"index": 1, "title": "Exact title",
-      "contribution_type": "strong|weak_extension|weak_application|irrelevant",
-      "confidence": 0.95, "reason": "Short justification"}}
-  ]
-}}
-"""
+- irrelevant: The paper does not address the topic or addresses it only
+  in passing. Completely different field or topic.
+  → REMOVE if confidence >= 0.6."""

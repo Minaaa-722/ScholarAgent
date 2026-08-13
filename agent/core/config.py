@@ -58,3 +58,11 @@ class SearchConfig:
     stratify_classic_quota: float = 0.30
     stratify_frontier_start: int = 2025
     stratify_mid_start: int = 2022
+
+    # LLM Relevance Filter optimizations
+    relevance_max_batch_size: int = 20
+    relevance_llm_timeout: int = 60
+    relevance_enable_reason: bool = False
+    relevance_keyword_filter_enabled: bool = True
+    relevance_cache_size: int = 200
+    enable_detailed_contribution_classify: bool = True
