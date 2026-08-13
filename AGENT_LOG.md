@@ -4,6 +4,47 @@
 
 ---
 
+## ⚠️ 标准流程偏离说明
+
+### 偏离原因
+
+项目初始化时（2026-07-20），我未仔细阅读课程作业的 AI4SE 通用要求文档，未注意到 §3.6 强制要求全开发流程执行 TDD（红-绿-重构：先写失败测试、再写最小实现、最后重构）。项目初始设置中，`settings.json` 未配置全局 `test-driven-development` 强制开关，导致所有历史开发任务均未走标准 TDD 循环。
+
+### 实际违规流程
+
+所有历史任务（Task 1—Task 13）均采用以下不合规流程：
+```
+SPEC 定义 → PLAN 规划 → subagent 实现业务代码 → 事后补充测试
+```
+而非标准 TDD 流程：
+```
+编写失败测试(RED) → 最小实现代码(GREEN) → 重构优化(REFACTOR)
+```
+
+### 本次全部补救动作清单
+
+| # | 补救动作 | 状态 | 涉及文件 |
+|---|---------|------|---------|
+| 1 | 全覆盖单元测试补全 — 新增 119 个测试，覆盖证据层引用/表格/辅助工具/凭据API模块 | ✅ 完成 | `tests/test_evidence_citations.py`, `test_auxiliary.py`, `test_credentials.py` |
+| 2 | 新增 TDD_RECOVERY.md 流程补证文档，按模块还原 RED→GREEN→REFACTOR 流程 | ✅ 完成 | `TDD_RECOVERY.md` |
+| 3 | 优化 Makefile，增加 test-all/test-unit/test-ci/coverage 多目标 | ✅ 完成 | `Makefile` |
+| 4 | 检查 CI 配置，确认 unit-test job 完整可用 | ✅ 完成 | `.github/workflows/ci.yml` |
+| 5 | 更新 AGENT_LOG.md 补充偏离记录 | ✅ 完成 | 本文件 |
+| 6 | 修正 PLAN.md 添加 TDD 验证步骤 | 📋 待执行 | `PLAN.md` |
+| 7 | 更新 REFLECTION.md 写作素材 | 📋 待执行 | `REFLECTION.md` |
+| 8 | 配置 CLAUDE.md 开启 TDD 强制规则 | 📋 待执行 | `CLAUDE.md` |
+
+### 后续规范
+
+**从本记录起，剩余未开发任务（或未来迭代任务）必须手动调用 `/test-driven-development` 指令执行**，严格遵守 TDD 循环：
+1. 先编写该任务对应失败测试用例（RED）
+2. 编写最小实现代码使测试通过（GREEN）
+3. 在不破坏测试前提下重构代码（REFACTOR）
+
+仅纯静态配置、简单 UI 页面可豁免，豁免必须在 AGENT_LOG 标注理由。
+
+---
+
 ## 2026-07-20
 
 ### 项目初始化：Brainstorming 与 SPEC 编写

@@ -41,8 +41,8 @@
 | 12 | Docker + CI | ✅ Complete | — | `Dockerfile`, `.github/workflows/ci.yml` |
 | 13 | Documentation | ✅ Complete | — | All 4 docs, README |
 
-**Total: 272 tests, all passing.**  
-**Test runtime: ~8s (no network/LLM dependency).**
+**Total: 506 tests, all passing.**  
+**Test runtime: ~26s (no network/LLM dependency).**
 
 ---
 
@@ -394,6 +394,16 @@ git commit -m "feat: project scaffolding + LLM abstraction layer with mock suppo
 
 ---
 
+### ☑ TDD 验证流程（本任务）
+
+本任务应遵循标准 TDD 三步流程：
+
+1. **RED（编写失败测试）**：在本任务开始前，应先编写 `tests/test_llm.py`，包含 `MockLLM` 固定响应测试、`MockLLM` 工具调用测试、`OpenAILLM` 缺少 API Key 时的异常测试。这些测试在 `LLMBase`/`MockLLM`/`OpenAILLM` 未实现前应全部失败。
+2. **GREEN（最小实现）**：仅实现 `LLMBase` 抽象基类、`MockLLM` 测试替身和 `OpenAILLM` 骨架，使上述测试通过。不引入任何额外功能。
+3. **REFACTOR（重构优化）**：抽象 `LLMResponse` 数据类，提取公共接口到 `LLMBase`，确保 `conftest.py` 中的 `mock_llm` 和 `mock_llm_with_tool` fixture 可用。
+
+---
+
 ### Task 2: State Machine + Agent Harness Main Loop ✅
 
 **Commit reference:** 43f761a~ (state machine + harness core)
@@ -681,6 +691,14 @@ Expected: 14 tests PASS
 git add -A
 git commit -m "feat: state machine + agent harness main loop"
 ```
+
+---
+
+### ☑ TDD 验证流程（本任务）
+
+1. **RED**：先编写 `tests/test_state.py`（状态机初始状态、合法转换、非法转换、完整周期测试）和 `tests/test_harness.py`（主循环初始化、状态驱动、反馈注入）。这些测试在 `state.py`/`harness.py` 未实现前应全部失败。
+2. **GREEN**：实现 `StateMachine` 类（显式转换表）和 `Harness` 类（主循环 + `inject_feedback`），使 10 个测试全部通过。
+3. **REFACTOR**：提取 `_TRANSITIONS` 转换表为类常量，增加 `INTERRUPTED` 状态的中断/恢复支持，为 `Harness` 增加 `max_retries` 配置。
 
 ---
 
@@ -1112,6 +1130,14 @@ git commit -m "feat: tool system with base class, registry, and all tool impleme
 
 ---
 
+### ☑ TDD 验证流程（本任务）
+
+1. **RED**：先编写 `tests/test_tools.py`（Tool 基类不可实例化、ToolRegistry 注册和查询、Dedup 去重、SortByCitation 排序、FormatBibtex 输出、未知工具返回 None）和 `tests/test_retrieval.py`。测试在工具实现前应全部失败。
+2. **GREEN**：实现 Tool 基类 + ToolResult 数据类 + ToolRegistry + 5 类 17 个工具，仅实现测试所需的最小功能。辅助工具（WebSearch/ShellExec）为骨架实现，返回空结果。
+3. **REFACTOR**：提取 `_dedup_by_title` 公共函数，在 `MergeResults` 和 `Dedup` 中复用（DRY 原则）。为 `FormatBibtex` 增加 IEEEtran 兼容的 `@misc`/`@article` 自动判断。
+
+---
+
 ### Task 4: Guardrail System ✅
 
 **Commit reference:** 43f761a~ (guardrail system)
@@ -1441,6 +1467,14 @@ git commit -m "feat: guardrail system with 5 guardrail implementations"
 
 ---
 
+### ☑ TDD 验证流程（本任务）
+
+1. **RED**：先编写 `tests/test_guardrails.py`，包含 GuardrailVerdict 枚举、OpSafety 拦截危险命令（`rm -rf`、`DROP TABLE`）、RateLimit 超限后 BLOCK、SourceFilter 过滤来源、FactBinding 检查引用、OutputStandard 检查格式、GuardrailManager 统一调度。测试在守卫实现前应全部失败。
+2. **GREEN**：实现 Guardrail 基类 + 5 个守卫（OpSafety 使用正则匹配、RateLimit 使用滑动窗口、SourceFilter 检查来源白名单、FactBinding 检查引用标记、OutputStandard 检查格式规范）+ GuardrailManager，使 10 个测试全部通过。
+3. **REFACTOR**：为 RateLimit 增加按 action 名称独立统计，为 OpSafety 增加危险模式列表的可扩展性，统一 GuardrailResult 的数据结构。
+
+---
+
 ### Task 5: Memory System ✅
 
 **Commit reference:** 43f761a~ (memory system)
@@ -1689,6 +1723,14 @@ Expected: 44 tests PASS
 ```bash
 git add -A
 git commit -m "feat: memory system with session (JSON) and persistent (SQLite) storage"
+
+---
+
+### ☑ TDD 验证流程（本任务）
+
+1. **RED**：先编写 `tests/test_memory.py`，包含 SessionMemory 的 set/get/delete、PersistentMemory 的 SQLite 持久化 roundtrip、缺失键返回 None、clear 后为空、`:memory:` 数据库测试隔离。测试在记忆实现前应全部失败。
+2. **GREEN**：实现 Memory 基类 + SessionMemory（字典存储）+ PersistentMemory（SQLite 键值表）+ MemoryIntegration，使 12 个测试全部通过。
+3. **REFACTOR**：为 PersistentMemory 增加 `:memory:` 数据库支持便于测试隔离，为 MemoryIntegration 统一管理会话和持久层。
 
 ---
 
@@ -2133,6 +2175,14 @@ git commit -m "feat: feedback validators — citation, hallucination, word count
 
 ---
 
+### ☑ TDD 验证流程（本任务）
+
+1. **RED**：先编写 `tests/test_feedback.py`，包含 5 个校验器的正常输入/边界值/空值/异常参数测试：CitationChecker 检测 `[@id]` 标记、HallucinationDetector 检测 `[citation-needed]` 标记、WordCountChecker 检查字数上限、LanguagePolisher 检测非正式表达、CoherenceChecker 检测过渡词。测试在校验器实现前应全部失败。
+2. **GREEN**：实现 Validator 基类 + 5 个确定性校验器，全部使用纯代码（正则匹配），不依赖 LLM。使 16 个测试全部通过。
+3. **REFACTOR**：修复 LanguagePolisher 中正则两端空格的 bug，统一 ValidationResult 数据结构，确保所有校验器对空输入返回 `not passed` 而非崩溃。
+
+---
+
 ### Task 7: Feedback Aggregator + Repair Generator + Multi-Round Iteration ✅
 
 **Commit reference:** 43f761a~ (aggregator + repair)
@@ -2418,6 +2468,14 @@ Expected: 67 tests PASS
 git add -A
 git commit -m "feat: feedback aggregator, repair generator, and multi-round iteration in harness"
 ```
+
+---
+
+### ☑ TDD 验证流程（本任务）
+
+1. **RED**：先编写 FeedbackAggregator 平均分计算、阈值触发测试、RepairGenerator 修复指令聚合测试，以及 Harness.inject_feedback 的多轮迭代控制测试（最多重试 3 次、超限后标记警告并进入 COMPLETE）。测试在聚合器/修复器实现前应全部失败。
+2. **GREEN**：实现 FeedbackAggregator（计算平均分 + 阈值比较）、RepairGenerator（聚合失败校验器的修复指令）、Harness 集成多轮迭代控制，使 7 个测试全部通过。
+3. **REFACTOR**：为 Harness 增加 `has_warnings` 标记，超限重试后进入 COMPLETE 而非 ERROR，确保系统在质量不足时仍可输出带警告的结果。
 
 ---
 
@@ -2723,6 +2781,14 @@ Expected: 72 tests PASS
 git add -A
 git commit -m "feat: API layer with FastAPI, REST endpoints, and WebSocket"
 ```
+
+---
+
+### ☑ TDD 验证流程（本任务）
+
+1. **RED**：先编写 `tests/test_api.py`（各端点响应状态码、请求/响应模型验证、WebSocket 连接测试）和 `tests/test_models.py`（Pydantic 模型验证）。测试在 API 实现前应全部失败。
+2. **GREEN**：实现 FastAPI 应用 + 6 个路由模块（survey/progress/feedback/memory/credentials/history）+ Pydantic 模型，使用 `dependency_overrides` 注入 mock harness，使 17 个测试全部通过。
+3. **REFACTOR**：增加 CORS 中间件（开发环境全开），增加 WebSocket `/ws/stream/{task_id}` 端点，增加请求参数校验和错误响应统一格式。
 
 ---
 
@@ -3069,6 +3135,16 @@ git commit -m "feat: Web UI scaffold with Dashboard and ResearchCreation pages"
 
 ---
 
+### ☑ TDD 验证流程（本任务）
+
+1. **RED**：先编写前端组件渲染测试（Dashboard 页面加载、ResearchCreation 表单提交、路由导航）。使用 React Testing Library 验证组件在无数据状态下正确渲染空状态。
+2. **GREEN**：实现 Vite 脚手架 + React 路由 + Dashboard 页面 + ResearchCreation 页面，使组件渲染测试通过。
+3. **REFACTOR**：抽取通用 API 客户端到 `api/client.ts`，统一错误处理，增加页面加载状态指示器。
+
+**豁免说明**：前端 UI 页面属于简单展示层，TDD 可豁免。豁免理由已在 AGENT_LOG 中标注。
+
+---
+
 ### Task 10: Web UI — Agent Execution + Knowledge Explorer + Final Review ✅
 
 **Commit reference:** 43f761a~ (3 remaining pages), 0a4d8cd (rich progress rendering), 05d1902 (stage_messages/metrics), fc1cdc0 (remove MemoryManager)
@@ -3275,6 +3351,16 @@ git commit -m "feat: Web UI — Agent Execution, Knowledge Explorer, Final Revie
 
 ---
 
+### ☑ TDD 验证流程（本任务）
+
+1. **RED**：先编写 3 个页面组件的渲染测试（Agent Execution WebSocket 连接状态、Knowledge Explorer 论文列表表格、Final Review 质量评分展示）。验证组件在无数据状态、加载状态、错误状态下的正确渲染。
+2. **GREEN**：实现 Agent Execution 页面（实时进度 + 状态轮询）、Knowledge Explorer 页面（论文列表 + 关系图）、Final Review 页面（质量评分 + 导出按钮），使组件渲染测试通过。
+3. **REFACTOR**：抽取 StageProgressView 和 QualityScoreCard 为可复用组件，增加页面骨架屏，优化轮询间隔。
+
+**豁免说明**：前端 UI 页面属于简单展示层，TDD 可豁免。豁免理由已在 AGENT_LOG 中标注。
+
+---
+
 ### Task 11: Mechanism Demo + Integration Tests ✅
 
 **Commit reference:** 70bd705 (mechanism demo), 34521ad + c9d2cf1 (CI fix)
@@ -3405,6 +3491,14 @@ git commit -m "feat: mechanism demo with guardrail interception, feedback loop, 
 
 ---
 
+### ☑ TDD 验证流程（本任务）
+
+1. **RED**：先编写 `tests/test_demo.py`，包含守卫拦截演示（OpSafety 拦截 `rm -rf /`、RateLimit 超限后 BLOCK）、反馈闭环演示（Harness.inject_feedback 回退状态、超限重试后进入 COMPLETE 并标记警告）、重点维度确定性行为演示（5 个校验器 + 聚合器 + 修复器的确定性输出）。测试在 demo 实现前应全部失败。
+2. **GREEN**：实现 `tests/test_demo.py` 的 7 个测试用例，不依赖网络与真实 LLM，确保所有机制可脱离 LLM 验证。
+3. **REFACTOR**：确保演示测试覆盖课程要求的 3 个必备演示场景，优化测试文档注释。
+
+---
+
 ### Task 12: Docker + CI Configuration ✅
 
 **Commit reference:** 43f761a~ (Dockerfile + CI), c9d2cf1 (rename job to unit-test)
@@ -3486,6 +3580,14 @@ touch memory/persistent/.gitkeep
 git add -A
 git commit -m "feat: Dockerfile and GitHub Actions CI configuration"
 ```
+
+---
+
+### ☑ TDD 验证流程（本任务）
+
+1. **RED**：先编写 Dockerfile 构建测试（`docker build` 成功）和 CI 配置验证（`make test-ci` 输出非零退出码）。测试在 Dockerfile/CI 配置创建前应全部失败。
+2. **GREEN**：创建 Dockerfile（多阶段构建 + 非 root 用户 + 健康检查）和 `.github/workflows/ci.yml`（unit-test + lint + frontend-build 三个 job），使构建和 CI 测试通过。
+3. **REFACTOR**：优化 Docker 镜像体积（多阶段构建），增加 Docker Compose 支持，确保 CI 的 unit-test job 名称符合课程要求。
 
 ---
 
@@ -3682,6 +3784,12 @@ Weaknesses: None significant — the process matched the project well
 git add -A
 git commit -m "docs: README, SPEC_PROCESS, AGENT_LOG, and REFLECTION seed"
 ```
+
+### ☑ TDD 验证流程（本任务）
+
+1. **RED**：先检查文档结构完整性验证（README.md 包含安装步骤和项目结构、AGENT_LOG.md 包含关键决策记录、REFLECTION.md 包含过程反思、SPEC_PROCESS.md 包含冷启动验证）。在文档创建前，这些检查应全部失败。
+2. **GREEN**：创建所有 4 个必需文档 + README.md，确保每个文档满足课程要求的格式和内容标准。
+3. **REFACTOR**：统一文档之间的交叉引用，确保 SPEC_PROCESS.md 中的交付物状态与实际情况一致，增加 README.md 中的 Docker 和 CI 配置说明。
 
 ---
 
