@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { getSurveyStatus, submitFeedback, restartSurvey, cancelSurvey, getPendingFeedback } from "../api/client";
+import { getSurveyStatus, restartSurvey, cancelSurvey } from "../api/client";
 import Button from "../components/Button";
 import Card from "../components/Card";
 import Badge from "../components/Badge";
@@ -10,14 +10,6 @@ import { useWebSocket } from "../hooks/useWebSocket";
 import StageTimeline from "../components/StageTimeline";
 
 const API_BASE = "http://localhost:8000";
-
-interface FeedbackItem {
-  id: string;
-  category: "supplement_papers" | "expand_section" | "general";
-  content: string;
-  status: "pending" | "processing" | "applied";
-  received_at: string;
-}
 
 interface PaperInfo {
   title: string;
@@ -83,8 +75,6 @@ interface ProgressInfo {
   error?: string;
   pipeline_retry_count?: number;
   last_failed_stage?: string;
-  feedback_queue: FeedbackItem[];
-  feedback_history: FeedbackItem[];
   execution_details: ExecutionDetails;
   stage_messages: StageMessage[];
   stage_metrics: StageMetrics;
@@ -105,12 +95,6 @@ const STAGE_LABELS: Record<string, string> = {
 
 const STAGE_ORDER = ["starting", "planning", "retrieval", "analysis", "writing", "validation", "format_repair", "retrying", "complete", "error"];
 
-const FEEDBACK_CATEGORIES = [
-  { value: "supplement_papers", label: "📄 补充论文", desc: "补充某个子领域的相关论文" },
-  { value: "expand_section", label: "📝 展开章节", desc: "要求对某个章节展开详细论述" },
-  { value: "general", label: "💬 通用反馈", desc: "其他修改建议" },
-];
-
 function getStatusBadgeColor(status: string): "green" | "red" | "orange" | "blue" | "gray" {
   if (status === "COMPLETE") return "green";
   if (status === "ERROR") return "red";
@@ -123,13 +107,6 @@ export default function AgentExecution() {
   const [progress, setProgress] = useState<ProgressInfo | null>(null);
   const [taskStartedAt, setTaskStartedAt] = useState<string>("");
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // Feedback state
-  const [feedbackCategory, setFeedbackCategory] = useState<string>("supplement_papers");
-  const [feedbackContent, setFeedbackContent] = useState<string>("");
-  const [feedbackSending, setFeedbackSending] = useState(false);
-  const [feedbackError, setFeedbackError] = useState<string | null>(null);
-  const [feedbackHistory, setFeedbackHistory] = useState<FeedbackItem[]>([]);
 
   // Restart state
   const [restarting, setRestarting] = useState(false);
@@ -156,10 +133,6 @@ export default function AgentExecution() {
       if (data.task_started_at) {
         setTaskStartedAt(data.task_started_at);
       }
-      // Note: feedback_history is NOT updated from WebSocket here because
-      // the server only populates feedback_history at stage boundaries.
-      // Feedback display relies on a dedicated polling mechanism below
-      // for real-time status updates.
     },
   });
 
@@ -189,83 +162,6 @@ export default function AgentExecution() {
     && progress?.task_started_at
     && (progress?.status === "COMPLETE" || progress?.status === "ERROR");
   const pipelineRunning = progress?.pipeline_running === true;
-
-  // Feedback polling: fetch feedback status updates every 2 seconds
-  // when the pipeline is running. This ensures feedback records appear
-  // immediately and statuses (pending → processing → applied) update
-  // in real-time, independent of WebSocket stage-boundary updates.
-  useEffect(() => {
-    // Only poll when pipeline is running
-    if (!pipelineRunning) return;
-
-    const pollFeedback = async () => {
-      try {
-        const data = await getPendingFeedback();
-        setFeedbackHistory(prev => {
-          const existingMap = new Map(prev.map(fb => [fb.id, fb]));
-
-          // Add items from queue (status: pending) that aren't yet in local state
-          for (const fb of (data.queue || [])) {
-            if (!existingMap.has(fb.id)) {
-              existingMap.set(fb.id, fb);
-            }
-          }
-
-          // Update statuses from history (processing / applied)
-          for (const fb of (data.history || [])) {
-            const existing = existingMap.get(fb.id);
-            if (existing && existing.status !== fb.status) {
-              existingMap.set(fb.id, { ...existing, status: fb.status });
-            } else if (!existing) {
-              existingMap.set(fb.id, fb);
-            }
-          }
-
-          // Sort by received_at ascending (oldest first)
-          return Array.from(existingMap.values()).sort(
-            (a, b) => new Date(a.received_at).getTime() - new Date(b.received_at).getTime()
-          );
-        });
-      } catch { /* ignore polling errors */ }
-    };
-
-    const timer = setInterval(pollFeedback, 2000);
-    return () => clearInterval(timer);
-  }, [pipelineRunning]);
-
-  // Initial load: fetch feedback history when progress first becomes available
-  // (handles page refresh / navigation when pipeline is already complete)
-  useEffect(() => {
-    if (!progress) return;
-    getPendingFeedback().then(data => {
-      setFeedbackHistory(prev => {
-        // Only populate if local state is empty (first load)
-        if (prev.length > 0) return prev;
-        const items = [...(data.history || []), ...(data.queue || [])];
-        return items.sort(
-          (a, b) => new Date(a.received_at).getTime() - new Date(b.received_at).getTime()
-        );
-      });
-    }).catch(() => {});
-  }, [Boolean(progress)]);
-
-  const handleSendFeedback = async () => {
-    if (!feedbackContent.trim()) return;
-    setFeedbackSending(true);
-    setFeedbackError(null);
-    try {
-      const result = await submitFeedback({
-        category: feedbackCategory,
-        content: feedbackContent.trim(),
-      });
-      setFeedbackHistory(prev => [...prev, result.feedback]);
-      setFeedbackContent("");
-    } catch {
-      setFeedbackError("发送失败，请重试");
-    } finally {
-      setFeedbackSending(false);
-    }
-  };
 
   const handleRestart = async () => {
     setRestarting(true);
@@ -351,11 +247,6 @@ export default function AgentExecution() {
             实时查看各阶段执行进度、当前消息和详细执行数据
           </p>
         </Card>
-        <Card title="💬 交互反馈">
-          <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)" }}>
-            在执行过程中向 Agent 提供反馈，动态调整研究方向
-          </p>
-        </Card>
         <Card title="✅ 质量验证">
           <p className="text-secondary" style={{ fontSize: "var(--font-size-sm)" }}>
             5 维度质量验证与自动修正，确保综述质量
@@ -427,89 +318,6 @@ export default function AgentExecution() {
         <p style={{ margin: 0, color: "var(--color-text-primary)" }}>{progress?.current_message}</p>
       </div>
     ) : null
-  );
-
-  const renderFeedbackPanel = () => (
-    <Card title="向 Agent 提供反馈" style={{ border: "1px solid var(--color-border)" }}>
-      <div style={{ marginBottom: "0.5rem" }}>
-        {FEEDBACK_CATEGORIES.map(c => (
-          <label key={c.value} style={{
-            display: "inline-flex", alignItems: "center", gap: "0.3rem",
-            marginRight: "1rem", cursor: "pointer", fontSize: "var(--font-size-sm)",
-          }}>
-            <input
-              type="radio"
-              name="feedbackCategory"
-              value={c.value}
-              checked={feedbackCategory === c.value}
-              onChange={() => setFeedbackCategory(c.value)}
-            />
-            {c.label}
-          </label>
-        ))}
-      </div>
-
-      <p style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-secondary)", margin: "0 0 0.5rem" }}>
-        {FEEDBACK_CATEGORIES.find(c => c.value === feedbackCategory)?.desc}
-      </p>
-
-      <textarea
-        value={feedbackContent}
-        onChange={e => setFeedbackContent(e.target.value)}
-        placeholder={
-          feedbackCategory === "supplement_papers" ? "例：请补充关于 Vision Transformer 高效的论文…" :
-          feedbackCategory === "expand_section" ? "例：请在实验部分增加对消融实验的详细讨论…" :
-          "例：请加强对对比方法的分析…"
-        }
-        rows={3}
-        style={{
-          width: "100%", padding: "0.6rem", borderRadius: "var(--radius-md)",
-          border: "1px solid var(--color-border)", fontSize: "var(--font-size-sm)",
-          resize: "vertical", boxSizing: "border-box",
-        }}
-      />
-
-      <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginTop: "0.5rem" }}>
-        <Button
-          onClick={handleSendFeedback}
-          disabled={feedbackSending || !feedbackContent.trim()}
-          loading={feedbackSending}
-        >
-          发送反馈
-        </Button>
-        {feedbackError && <span style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)" }}>{feedbackError}</span>}
-      </div>
-
-      {feedbackHistory.length > 0 && (
-        <div style={{ marginTop: "1rem", borderTop: "1px solid var(--color-border-light)", paddingTop: "0.8rem" }}>
-          <h5 style={{ margin: "0 0 0.5rem", color: "#555", fontSize: "var(--font-size-sm)" }}>反馈历史</h5>
-          {feedbackHistory.map(fb => (
-            <div key={fb.id} style={{
-              padding: "0.5rem 0.8rem", marginBottom: "0.3rem", borderRadius: "var(--radius-md)",
-              borderLeft: `3px solid ${
-                fb.status === "applied" ? "var(--color-success)" :
-                fb.status === "processing" ? "var(--color-warning)" : "var(--color-primary)"
-              }`,
-              background: fb.status === "applied" ? "var(--color-success-light)" : "#fafafa",
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-disabled)" }}>
-                  {FEEDBACK_CATEGORIES.find(c => c.value === fb.category)?.label || fb.category}
-                  {" — "}{fb.received_at}
-                </span>
-                <Badge color={fb.status === "applied" ? "green" : fb.status === "processing" ? "orange" : "blue"}>
-                  {fb.status === "applied" ? "✓ 已处理" :
-                   fb.status === "processing" ? "⟳ 处理中…" : "◷ 排队中"}
-                </Badge>
-              </div>
-              <p style={{ margin: "0.2rem 0 0", fontSize: "var(--font-size-sm)", color: "var(--color-text-primary)" }}>
-                {fb.content}
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
-    </Card>
   );
 
   const renderErrorPanel = () => {
@@ -595,46 +403,25 @@ export default function AgentExecution() {
           {/* Current message */}
           {renderCurrentMessage()}
 
-          {/* Two-column layout when running */}
-          {pipelineRunning ? (
-            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "1.5rem" }}>
-              <div>
-                <StageTimeline
-                  currentStage={currentStage}
-                  stageOrder={STAGE_ORDER}
-                  stageLabels={STAGE_LABELS}
-                  executionDetails={progress?.execution_details ?? null}
-                  currentMessage={progress?.current_message ?? ""}
-                  pipelineRunning={pipelineRunning}
-                  stageMessages={progress?.stage_messages ?? []}
-                  stageMetrics={progress?.stage_metrics ?? {}}
-                />
-              </div>
-              <div>{renderFeedbackPanel()}</div>
-            </div>
-          ) : (
-            <div>
-              <StageTimeline
-                currentStage={currentStage}
-                stageOrder={STAGE_ORDER}
-                stageLabels={STAGE_LABELS}
-                executionDetails={progress?.execution_details ?? null}
-                currentMessage={progress?.current_message ?? ""}
-                pipelineRunning={pipelineRunning}
-                stageMessages={progress?.stage_messages ?? []}
-                stageMetrics={progress?.stage_metrics ?? {}}
-              />
-              {renderErrorPanel()}
-              {pipelineFinished && progress?.status !== "ERROR" && (
-                <div style={{
-                  background: "var(--color-success-light)", borderRadius: "var(--radius-lg)", padding: "1rem 1.5rem",
-                  borderLeft: "4px solid var(--color-success)",
-                }}>
-                  <p style={{ margin: 0, color: "var(--color-success-dark)", fontWeight: 600 }}>
-                    ✓ Pipeline completed. {progress.has_warnings && "Completed with warnings."}
-                  </p>
-                </div>
-              )}
+          <StageTimeline
+            currentStage={currentStage}
+            stageOrder={STAGE_ORDER}
+            stageLabels={STAGE_LABELS}
+            executionDetails={progress?.execution_details ?? null}
+            currentMessage={progress?.current_message ?? ""}
+            pipelineRunning={pipelineRunning}
+            stageMessages={progress?.stage_messages ?? []}
+            stageMetrics={progress?.stage_metrics ?? {}}
+          />
+          {renderErrorPanel()}
+          {pipelineFinished && progress?.status !== "ERROR" && (
+            <div style={{
+              background: "var(--color-success-light)", borderRadius: "var(--radius-lg)", padding: "1rem 1.5rem",
+              borderLeft: "4px solid var(--color-success)",
+            }}>
+              <p style={{ margin: 0, color: "var(--color-success-dark)", fontWeight: 600 }}>
+                ✓ Pipeline completed. {progress.has_warnings && "Completed with warnings."}
+              </p>
             </div>
           )}
         </div>
