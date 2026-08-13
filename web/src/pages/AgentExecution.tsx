@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { getSurveyStatus, submitFeedback, restartSurvey, cancelSurvey } from "../api/client";
+import { getSurveyStatus, submitFeedback, restartSurvey, cancelSurvey, getPendingFeedback } from "../api/client";
 import Button from "../components/Button";
 import Card from "../components/Card";
 import Badge from "../components/Badge";
@@ -156,9 +156,10 @@ export default function AgentExecution() {
       if (data.task_started_at) {
         setTaskStartedAt(data.task_started_at);
       }
-      if (data.feedback_history) {
-        setFeedbackHistory(data.feedback_history);
-      }
+      // Note: feedback_history is NOT updated from WebSocket here because
+      // the server only populates feedback_history at stage boundaries.
+      // Feedback display relies on a dedicated polling mechanism below
+      // for real-time status updates.
     },
   });
 
@@ -179,6 +180,74 @@ export default function AgentExecution() {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
     };
   }, [taskStartedAt]);
+
+  // Derived pipeline state (defined early so useEffects can reference them)
+  const currentStage = progress?.current_stage || "";
+  const stageIndex = STAGE_ORDER.indexOf(currentStage);
+  const pipelineFinished = !connected
+    && progress?.pipeline_running === false
+    && progress?.task_started_at
+    && (progress?.status === "COMPLETE" || progress?.status === "ERROR");
+  const pipelineRunning = progress?.pipeline_running === true;
+
+  // Feedback polling: fetch feedback status updates every 2 seconds
+  // when the pipeline is running. This ensures feedback records appear
+  // immediately and statuses (pending → processing → applied) update
+  // in real-time, independent of WebSocket stage-boundary updates.
+  useEffect(() => {
+    // Only poll when pipeline is running
+    if (!pipelineRunning) return;
+
+    const pollFeedback = async () => {
+      try {
+        const data = await getPendingFeedback();
+        setFeedbackHistory(prev => {
+          const existingMap = new Map(prev.map(fb => [fb.id, fb]));
+
+          // Add items from queue (status: pending) that aren't yet in local state
+          for (const fb of (data.queue || [])) {
+            if (!existingMap.has(fb.id)) {
+              existingMap.set(fb.id, fb);
+            }
+          }
+
+          // Update statuses from history (processing / applied)
+          for (const fb of (data.history || [])) {
+            const existing = existingMap.get(fb.id);
+            if (existing && existing.status !== fb.status) {
+              existingMap.set(fb.id, { ...existing, status: fb.status });
+            } else if (!existing) {
+              existingMap.set(fb.id, fb);
+            }
+          }
+
+          // Sort by received_at ascending (oldest first)
+          return Array.from(existingMap.values()).sort(
+            (a, b) => new Date(a.received_at).getTime() - new Date(b.received_at).getTime()
+          );
+        });
+      } catch { /* ignore polling errors */ }
+    };
+
+    const timer = setInterval(pollFeedback, 2000);
+    return () => clearInterval(timer);
+  }, [pipelineRunning]);
+
+  // Initial load: fetch feedback history when progress first becomes available
+  // (handles page refresh / navigation when pipeline is already complete)
+  useEffect(() => {
+    if (!progress) return;
+    getPendingFeedback().then(data => {
+      setFeedbackHistory(prev => {
+        // Only populate if local state is empty (first load)
+        if (prev.length > 0) return prev;
+        const items = [...(data.history || []), ...(data.queue || [])];
+        return items.sort(
+          (a, b) => new Date(a.received_at).getTime() - new Date(b.received_at).getTime()
+        );
+      });
+    }).catch(() => {});
+  }, [Boolean(progress)]);
 
   const handleSendFeedback = async () => {
     if (!feedbackContent.trim()) return;
@@ -223,14 +292,6 @@ export default function AgentExecution() {
       showToast("error", "Cancel failed");
     }
   };
-
-  const currentStage = progress?.current_stage || "";
-  const stageIndex = STAGE_ORDER.indexOf(currentStage);
-  const pipelineFinished = !connected
-    && progress?.pipeline_running === false
-    && progress?.task_started_at
-    && (progress?.status === "COMPLETE" || progress?.status === "ERROR");
-  const pipelineRunning = progress?.pipeline_running === true;
 
   const renderDefaultPage = () => (
     <div>
