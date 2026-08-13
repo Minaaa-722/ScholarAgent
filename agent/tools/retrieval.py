@@ -395,6 +395,108 @@ def dual_channel_arxiv_search(
 
 
 # ---------------------------------------------------------------------------
+# Fallback Manager
+# ---------------------------------------------------------------------------
+class FallbackManager:
+    """分阶段 Fallback 策略。"""
+
+    def __init__(
+        self,
+        arxiv_tool: "ArxivSearch",
+        ss_tool: "SemanticScholarSearch | None",
+        config: "SearchConfig",
+    ):
+        self.arxiv_tool = arxiv_tool
+        self.ss_tool = ss_tool
+        self.config = config
+
+    def fallback_phase6(
+        self,
+        papers: list["Paper"],
+        topic: str,
+        keywords: list[str],
+    ) -> list["Paper"]:
+        """Phase 6 Fallback：论文数 < 10 时触发。"""
+        from agent.tools.models import Paper
+
+        logger.warning(
+            "Phase6 fallback triggered: %d papers < %d",
+            len(papers), self.config.fallback_phase6_min_papers,
+        )
+
+        queries = [topic] + keywords[:3]
+        new_papers: list[Paper] = []
+
+        for q in queries:
+            ti_result = self.arxiv_tool.execute({
+                "query": f"ti:{q}",
+                "max_results": self.config.arxiv_ti_max_results,
+            })
+            if ti_result.success:
+                for p in ti_result.data.get("papers", []):
+                    paper = Paper.from_dict(p)
+                    paper.hit_channels.append("fallback_phase6_ti")
+                    new_papers.append(paper)
+
+            abs_result = self.arxiv_tool.execute({
+                "query": f"abs:{q}",
+                "max_results": self.config.arxiv_abs_max_results,
+            })
+            if abs_result.success:
+                for p in abs_result.data.get("papers", []):
+                    paper = Paper.from_dict(p)
+                    paper.hit_channels.append("fallback_phase6_abs")
+                    new_papers.append(paper)
+
+        # Dedup merge
+        seen = set()
+        merged = []
+        for p in papers + new_papers:
+            key = p.title.lower().strip()
+            if key and key not in seen:
+                seen.add(key)
+                merged.append(p)
+
+        logger.info("Phase6 fallback: %d -> %d papers", len(papers), len(merged))
+        return merged
+
+    def fallback_phase7(self, papers: list["Paper"], topic: str) -> list["Paper"]:
+        """Phase 7 Fallback：论文数 < 5 时触发。
+
+        Fix 4：仅 arXiv all: 单通道，max_results=20。
+        """
+        from agent.tools.models import Paper
+
+        logger.warning(
+            "Phase7 fallback triggered: %d papers < %d",
+            len(papers), self.config.fallback_phase7_min_papers,
+        )
+
+        result = self.arxiv_tool.execute({
+            "query": topic,
+            "max_results": self.config.fallback_phase7_max_results,
+        })
+
+        new_papers: list[Paper] = []
+        if result.success:
+            for p in result.data.get("papers", []):
+                paper = Paper.from_dict(p)
+                paper.hit_channels.append("fallback_phase7_all")
+                new_papers.append(paper)
+
+        seen = {p.title.lower().strip() for p in papers if p.title}
+        merged = list(papers)
+        for p in new_papers:
+            key = p.title.lower().strip()
+            if key and key not in seen:
+                seen.add(key)
+                merged.append(p)
+
+        logger.info("Phase7 fallback: %d -> %d papers", len(papers), len(merged))
+        return merged
+
+
+# ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
 def json_loads(text: str):

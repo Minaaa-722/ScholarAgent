@@ -113,3 +113,124 @@ def test_dual_channel_arxiv_search_ti_priority():
     papers = dual_channel_arxiv_search(tool, "test query", "", config)
     # ti channel runs first, so its hit_channel is preserved
     assert papers[0].hit_channels == ["arxiv_ti"]
+
+
+def test_fallback_phase6_not_triggered():
+    """论文数充足时不触发 phase6."""
+    from agent.tools.retrieval import FallbackManager, ArxivSearch
+    from agent.tools.base import ToolResult
+    from agent.tools.models import Paper
+
+    config = SearchConfig()
+
+    class MockArxiv(ArxivSearch):
+        def execute(self, params):
+            return ToolResult(success=True, data={"papers": []})
+
+    mgr = FallbackManager(MockArxiv(), None, config)
+    papers = [Paper(title=f"Paper {i}") for i in range(15)]
+    result = mgr.fallback_phase6(papers, "topic", ["keyword"])
+    assert len(result) == 15
+
+
+def test_fallback_phase6_triggered():
+    """论文数<10 时触发 phase6."""
+    from agent.tools.retrieval import FallbackManager, ArxivSearch
+    from agent.tools.base import ToolResult
+    from agent.core.config import SearchConfig
+    from agent.tools.models import Paper
+
+    config = SearchConfig()
+
+    class MockArxiv(ArxivSearch):
+        def execute(self, params):
+            return ToolResult(success=True, data={
+                "papers": [{"title": "New Paper", "authors": [], "year": 2024, "arxiv_id": "2401.99999", "source": "arxiv", "url": "", "categories": [], "citation_count": 0, "doi": "", "abstract": "New"}]
+            })
+
+    mgr = FallbackManager(MockArxiv(), None, config)
+    papers = [Paper(title=f"Paper {i}") for i in range(3)]
+    result = mgr.fallback_phase6(papers, "topic", ["keyword"])
+    assert len(result) > 3
+
+
+def test_fallback_phase7_single_channel():
+    """Fix 4: Phase7 仅 arXiv all: 单通道."""
+    from agent.tools.retrieval import FallbackManager, ArxivSearch
+    from agent.tools.base import ToolResult
+    from agent.core.config import SearchConfig
+    from agent.tools.models import Paper
+
+    config = SearchConfig()
+
+    class MockArxiv(ArxivSearch):
+        def execute(self, params):
+            assert "ti:" not in params.get("query", "")
+            assert "abs:" not in params.get("query", "")
+            return ToolResult(success=True, data={
+                "papers": [{"title": "Phase7 Paper", "authors": [], "year": 2024, "arxiv_id": "2401.88888", "source": "arxiv", "url": "", "categories": [], "citation_count": 0, "doi": "", "abstract": "Phase7"}]
+            })
+
+    mgr = FallbackManager(MockArxiv(), None, config)
+    papers = [Paper(title=f"Paper {i}") for i in range(2)]
+    result = mgr.fallback_phase7(papers, "topic")
+    assert len(result) == 3
+
+
+def test_fallback_phase7_max_results():
+    """Fix 4: Phase7 max_results 严格限制 20."""
+    from agent.tools.retrieval import FallbackManager, ArxivSearch
+    from agent.tools.base import ToolResult
+    from agent.core.config import SearchConfig
+
+    config = SearchConfig()
+    config.fallback_phase7_max_results = 20
+
+    class MockArxiv(ArxivSearch):
+        def execute(self, params):
+            assert params.get("max_results") == 20
+            return ToolResult(success=True, data={"papers": []})
+
+    mgr = FallbackManager(MockArxiv(), None, config)
+    mgr.fallback_phase7([], "topic")
+
+
+def test_fallback_phase7_no_ss():
+    """Fix 4: Phase7 不调用 Semantic Scholar."""
+    from agent.tools.retrieval import FallbackManager, ArxivSearch
+    from agent.tools.base import ToolResult
+    from agent.core.config import SearchConfig
+
+    config = SearchConfig()
+
+    class MockArxiv(ArxivSearch):
+        def execute(self, params):
+            return ToolResult(success=True, data={"papers": []})
+
+    class MockSS:
+        def execute(self, params):
+            raise AssertionError("Phase7 should not call Semantic Scholar")
+
+    mgr = FallbackManager(MockArxiv(), MockSS(), config)
+    mgr.fallback_phase7([], "topic")
+
+
+def test_fallback_phase6_dedup():
+    """Phase6 合并去重."""
+    from agent.tools.retrieval import FallbackManager, ArxivSearch
+    from agent.tools.base import ToolResult
+    from agent.core.config import SearchConfig
+    from agent.tools.models import Paper
+
+    config = SearchConfig()
+
+    class MockArxiv(ArxivSearch):
+        def execute(self, params):
+            return ToolResult(success=True, data={
+                "papers": [{"title": "Duplicate Paper", "authors": [], "year": 2024, "arxiv_id": "2401.00001", "source": "arxiv", "url": "", "categories": [], "citation_count": 0, "doi": "", "abstract": "Dup"}]
+            })
+
+    mgr = FallbackManager(MockArxiv(), None, config)
+    papers = [Paper(title="Duplicate Paper")]
+    result = mgr.fallback_phase6(papers, "topic", ["keyword"])
+    assert len(result) == 1  # dedup
