@@ -17,8 +17,8 @@
 | **反馈闭环** | 5 个确定性校验器（引用检查、幻觉检测、字数统计、语言润色、连贯性检查）+ 聚合器 + 修复指令生成器，支持多轮自动修正 |
 | **守卫系统** | 5 类守卫（来源过滤、事实绑定、操作安全、速率限制、输出标准化），统一管理器调度 |
 | **双层级记忆** | 会话级 JSON 持久化 + 跨会话 SQLite 持久化，含记忆集成层自动注入用户偏好 |
-| **实时 Web UI** | 7 页面 React 前端，14 个组件，WebSocket 实时进度推送，支持人工反馈注入 |
-| **RESTful API** | FastAPI 后端，7 路由模块（综述、进度、反馈、记忆、凭据、历史、健康检查），完整 OpenAPI 文档 |
+| **实时 Web UI** | 7 页面 React 前端，14 个组件，WebSocket 实时进度推送 |
+| **RESTful API** | FastAPI 后端，6 路由模块（综述、进度、记忆、凭据、历史、健康检查），完整 OpenAPI 文档 |
 | **凭据安全存储** | 支持 Windows Credential Manager / keyring / .env 三种凭据管理方式，API Key 绝不硬编码 |
 | **CI/CD 就绪** | GitHub Actions 三流水线（单元测试 + lint + 前端构建），Docker 多阶段构建 |
 
@@ -134,7 +134,6 @@ ScholarAgent/
 │   └── routes/                     # 7 路由模块
 │       ├── survey.py               # 综述任务 CRUD
 │       ├── progress.py             # 进度 WebSocket 推送
-│       ├── feedback.py             # 反馈注入 API
 │       ├── memory.py               # 记忆管理 API
 │       ├── credentials.py          # 凭据管理 API
 │       └── history.py              # 历史任务 API
