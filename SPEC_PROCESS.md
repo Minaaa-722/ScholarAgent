@@ -74,7 +74,7 @@
 >
 > **测试智能体**：OpenAI Codex CLI（与主开发工具 Claude Code 不同类型）
 > **测试时间**：2026-08-10
-> **提供材料**：SPEC.md + PLAN.md（仅文件，无任何口头补充说明）
+> **提供材料**：SPEC.md + PLAN.md
 > **选取 task**：PLAN 中的 Task 1（Harness 核心主循环框架）和 Task 3（OpSafety 守卫实现）
 
 ### 3.1 验证过程记录
