@@ -306,6 +306,95 @@ class MergeResults(Tool):
 
 
 # ---------------------------------------------------------------------------
+# Helper functions for query expansion and arXiv search
+# ---------------------------------------------------------------------------
+def auto_quote_terms(query: str) -> str:
+    """通用引号封装（Fix 1：多词术语 + 含连字符术语统一加引号）。"""
+    if query.startswith('"') and query.endswith('"'):
+        return query
+    words = query.split()
+    if len(words) <= 1 and "-" not in query:
+        return query
+    return f'"{query}"'
+
+
+def infer_arxiv_category(
+    query: str,
+    topic: str,
+    domain_cat_map: dict,
+    fallback: str = "cs.AI",
+) -> str:
+    """根据 query+topic 关键词推断 arXiv 分类。"""
+    combined = f"{query} {topic}".lower()
+    for keyword, cat in domain_cat_map.items():
+        if keyword in combined:
+            return cat
+    return fallback
+
+
+def dual_channel_arxiv_search(
+    arxiv_tool: "ArxivSearch",
+    query: str,
+    cat_filter: str = "",
+    config: "SearchConfig | None" = None,
+) -> list["Paper"]:
+    """arXiv 双通道检索：ti 精准 + abs 召回。"""
+    from agent.tools.models import Paper
+
+    quoted = auto_quote_terms(query)
+    papers: list[Paper] = []
+
+    # Channel 1: ti
+    ti_query = f"ti:{quoted}"
+    if cat_filter:
+        ti_query += f" AND cat:{cat_filter}"
+
+    ti_result = arxiv_tool.execute({
+        "query": ti_query,
+        "max_results": config.arxiv_ti_max_results if config else 20,
+    })
+    if ti_result.success:
+        for p_data in ti_result.data.get("papers", []):
+            paper = Paper.from_dict(p_data)
+            paper.hit_channels.append("arxiv_ti")
+            paper.search_source_queries.append(query)
+            papers.append(paper)
+
+    # Channel 2: abs
+    abs_query = f"abs:{quoted}"
+    if cat_filter:
+        abs_query += f" AND cat:{cat_filter}"
+
+    abs_result = arxiv_tool.execute({
+        "query": abs_query,
+        "max_results": config.arxiv_abs_max_results if config else 20,
+    })
+    if abs_result.success:
+        for p_data in abs_result.data.get("papers", []):
+            paper = Paper.from_dict(p_data)
+            paper.hit_channels.append("arxiv_abs")
+            paper.search_source_queries.append(query)
+            papers.append(paper)
+
+    # Dedup
+    seen = set()
+    unique = []
+    for p in papers:
+        key = p.title.lower().strip()
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(p)
+
+    logger.info(
+        "arXiv dual-channel [ti=%s] [abs=%s] → %d unique papers",
+        "success" if ti_result.success else "fail",
+        "success" if abs_result.success else "fail",
+        len(unique),
+    )
+    return unique
+
+
+# ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
 def json_loads(text: str):
