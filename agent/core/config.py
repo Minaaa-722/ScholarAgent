@@ -31,3 +31,30 @@ class SearchConfig:
     fallback_phase6_min_papers: int = 10
     fallback_phase7_min_papers: int = 5
     fallback_phase7_max_results: int = 20
+
+    # Year-segmented SS search
+    ss_year_segments: list[dict] = field(default_factory=lambda: [
+        {"start": 2025, "end": 2026, "min_citation_count": 0, "label": "frontier"},
+        {"start": 2022, "end": 2024, "min_citation_count": 3, "label": "mid"},
+        {"start": 0,    "end": 2021, "min_citation_count": 5, "label": "foundational"},
+    ])
+    ss_frontier_max_results: int = 30
+    ss_mid_max_results: int = 20
+    ss_foundational_max_results: int = 15
+
+    # Contribution type weights
+    rank_contribution_strong: float = 1.0
+    rank_contribution_extension: float = 0.6
+    rank_contribution_application: float = 0.2
+    rank_contribution_default: float = 0.5
+
+    # Time decay
+    rank_decay_factor: float = 0.15
+    rank_current_year: int = 2026
+
+    # Stratified sampling quotas
+    stratify_frontier_quota: float = 0.30
+    stratify_mid_quota: float = 0.40
+    stratify_classic_quota: float = 0.30
+    stratify_frontier_start: int = 2025
+    stratify_mid_start: int = 2022
