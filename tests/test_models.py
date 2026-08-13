@@ -85,3 +85,22 @@ def test_paper_to_dict_from_dict_roundtrip():
     assert p2.year == p.year
     assert p2.citation_count == p.citation_count
     assert p2.relevance == p.relevance
+
+
+def test_contribution_type_default():
+    p = Paper(title="Test")
+    assert p.contribution_type == "weak_application"
+
+
+def test_contribution_type_roundtrip():
+    p = Paper(title="Test", contribution_type="strong")
+    d = p.to_dict()
+    assert d["contribution_type"] == "strong"
+    p2 = Paper.from_dict(d)
+    assert p2.contribution_type == "strong"
+
+
+def test_contribution_type_from_dict_default():
+    # from_dict with missing field uses Paper default
+    p2 = Paper.from_dict({"title": "Test"})
+    assert p2.contribution_type == "weak_application"

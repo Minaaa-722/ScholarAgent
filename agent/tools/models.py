@@ -25,6 +25,8 @@ class Paper:
     relevance_confidence: float = 0.0
     relevance_reason: str = ""
 
+    contribution_type: str = "weak_application"
+
     composite_score: float = 0.0
 
     search_source_queries: list[str] = field(default_factory=list)
