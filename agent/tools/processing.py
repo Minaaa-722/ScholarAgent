@@ -1,4 +1,6 @@
 from agent.tools.base import Tool, ToolResult, _dedup_by_title
+from agent.tools.models import Paper
+from agent.core.config import SearchConfig
 
 
 import logging
@@ -108,3 +110,71 @@ class FormatBibtex(Tool):
             f"}}"
         )
         return ToolResult(success=True, data={"bibtex": bibtex})
+
+
+# ---------------------------------------------------------------------------
+# Paper ranking
+# ---------------------------------------------------------------------------
+def rank_papers(papers: list["Paper"], config: "SearchConfig") -> list["Paper"]:
+    """RRF + 综合加权排序。"""
+    if not papers:
+        return papers
+
+    max_citations = max(p.citation_count for p in papers) or 1
+    current_year = 2026
+
+    for p in papers:
+        citation_score = p.citation_count / max_citations
+
+        if p.relevance == "strong":
+            relevance_score = 1.0
+        elif p.relevance == "weak":
+            relevance_score = 0.5
+        else:
+            relevance_score = 0.0
+
+        age = current_year - p.year
+        recency_score = max(0.0, 1.0 - age / 10.0) if p.year > 0 else 0.0
+
+        p.composite_score = round(
+            config.rank_alpha * citation_score
+            + config.rank_beta * relevance_score
+            + config.rank_gamma * recency_score,
+            4,
+        )
+
+    if config.rrf_enabled and len(papers) > 1:
+        papers = _apply_rrf(papers, config)
+
+    papers.sort(key=lambda p: p.composite_score, reverse=True)
+
+    if papers:
+        logger.info("Ranked top-3: %s", [(p.title[:40], p.composite_score) for p in papers[:3]])
+
+    return papers
+
+
+def _apply_rrf(papers: list["Paper"], config: "SearchConfig") -> list["Paper"]:
+    """Reciprocal Rank Fusion 融合多通道排序。"""
+    channels: dict[str, list["Paper"]] = {}
+    for p in papers:
+        for ch in p.hit_channels:
+            channels.setdefault(ch, []).append(p)
+
+    if not channels:
+        return papers
+
+    rrf_k = config.rrf_k
+    score_map: dict[str, float] = {}
+
+    for ch, ch_papers in channels.items():
+        for rank, p in enumerate(ch_papers):
+            key = p.title.lower().strip()
+            score_map[key] = score_map.get(key, 0.0) + 1.0 / (rrf_k + rank)
+
+    for p in papers:
+        key = p.title.lower().strip()
+        rrf_score = score_map.get(key, 0.0)
+        p.composite_score = round(p.composite_score * 0.7 + rrf_score * 0.3, 4)
+
+    return papers
