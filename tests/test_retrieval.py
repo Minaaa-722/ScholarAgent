@@ -275,3 +275,78 @@ def test_merge_results_multi_hit():
     assert paper["doi"] == "10.1234/paper-a"
     # source becomes "merged"
     assert paper["source"] == "merged"
+
+
+def test_segmented_ss_search_calls_all_segments():
+    """segmented_ss_search should call SS execute for each segment."""
+    from agent.tools.retrieval import segmented_ss_search
+    from unittest.mock import MagicMock
+    from agent.tools.base import ToolResult
+
+    config = SearchConfig()
+    ss_tool = MagicMock()
+    ss_tool.execute.return_value = ToolResult(success=True, data={"papers": []})
+
+    segmented_ss_search(ss_tool, "test query", config, "test topic")
+
+    # Should be called 3 times (one per segment)
+    assert ss_tool.execute.call_count == 3
+    calls = ss_tool.execute.call_args_list
+    # First call: frontier (2025-2026, min_citation=0)
+    assert calls[0][0][0]["year_start"] == 2025
+    assert calls[0][0][0]["min_citation_count"] == 0
+    # Second call: mid (2022-2024, min_citation=3)
+    assert calls[1][0][0]["year_start"] == 2022
+    assert calls[1][0][0]["min_citation_count"] == 3
+    # Third call: foundational (0-2021, min_citation=5)
+    assert calls[2][0][0]["year_start"] == 0
+    assert calls[2][0][0]["min_citation_count"] == 5
+
+
+def test_segmented_ss_search_hit_channels():
+    """Each segment should tag papers with appropriate hit_channel."""
+    from agent.tools.retrieval import segmented_ss_search
+    from unittest.mock import MagicMock
+    from agent.tools.base import ToolResult
+
+    config = SearchConfig()
+    ss_tool = MagicMock()
+    ss_tool.execute.side_effect = [
+        ToolResult(success=True, data={"papers": [{"title": "Frontier Paper", "authors": [], "year": 2025, "arxiv_id": "", "source": "ss", "url": "", "categories": [], "citation_count": 0, "doi": "", "abstract": "test"}]}),
+        ToolResult(success=True, data={"papers": [{"title": "Mid Paper", "authors": [], "year": 2023, "arxiv_id": "", "source": "ss", "url": "", "categories": [], "citation_count": 5, "doi": "", "abstract": "test"}]}),
+        ToolResult(success=True, data={"papers": [{"title": "Classic Paper", "authors": [], "year": 2020, "arxiv_id": "", "source": "ss", "url": "", "categories": [], "citation_count": 10, "doi": "", "abstract": "test"}]}),
+    ]
+
+    result = segmented_ss_search(ss_tool, "test query", config, "test topic")
+    assert len(result) == 3
+    assert result[0].hit_channels == ["ss_frontier"]
+    assert result[1].hit_channels == ["ss_mid"]
+    assert result[2].hit_channels == ["ss_foundational"]
+
+
+def test_segmented_ss_search_search_source_queries():
+    """Each paper should have search_source_queries set."""
+    from agent.tools.retrieval import segmented_ss_search
+    from unittest.mock import MagicMock
+    from agent.tools.base import ToolResult
+
+    config = SearchConfig()
+    ss_tool = MagicMock()
+    ss_tool.execute.return_value = ToolResult(success=True, data={"papers": [{"title": "Test", "authors": [], "year": 2025, "arxiv_id": "", "source": "ss", "url": "", "categories": [], "citation_count": 0, "doi": "", "abstract": "test"}]})
+
+    result = segmented_ss_search(ss_tool, "test query", config, "test topic")
+    assert "test query" in result[0].search_source_queries
+
+
+def test_fallback_phase6_has_survey_query():
+    """Fallback phase6 should return papers via survey-oriented queries."""
+    from agent.tools.retrieval import FallbackManager
+    from unittest.mock import MagicMock
+    from agent.tools.base import ToolResult
+
+    config = SearchConfig()
+    arxiv_mock = MagicMock()
+    arxiv_mock.execute.return_value = ToolResult(success=True, data={"papers": [{"title": "Survey Result", "authors": [], "year": 2023, "arxiv_id": "2301.00001", "source": "arxiv", "url": "", "categories": [], "citation_count": 0, "doi": "", "abstract": "test"}]})
+    mgr = FallbackManager(arxiv_mock, None, config)
+    result = mgr.fallback_phase6([], "test topic", ["kw1"])
+    assert len(result) >= 1

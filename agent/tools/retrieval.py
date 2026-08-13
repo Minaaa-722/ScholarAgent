@@ -439,6 +439,13 @@ class FallbackManager:
         )
 
         queries = [topic] + keywords[:3]
+
+        # Add survey reverse query and methodology query
+        survey_query = f'"survey {topic}" OR "review {topic}"'
+        queries.append(survey_query)
+        method_query = f'"{topic} method" OR "{topic} approach" OR "{topic} technique"'
+        queries.append(method_query)
+
         new_papers: list[Paper] = []
 
         for q in queries:
@@ -508,6 +515,44 @@ class FallbackManager:
 
         logger.info("Phase7 fallback: %d -> %d papers", len(papers), len(merged))
         return merged
+
+
+# ---------------------------------------------------------------------------
+# Year-Segmented Semantic Scholar Search
+# ---------------------------------------------------------------------------
+def segmented_ss_search(
+    ss_tool: "SemanticScholarSearch",
+    query: str,
+    config: "SearchConfig",
+    topic: str = "",
+) -> list["Paper"]:
+    """Execute three parallel SS searches per query with year-segmented thresholds.
+
+    Each segment gets its own year range and minCitationCount.
+    Papers are tagged with hit_channel = "ss_frontier", "ss_mid", "ss_foundational".
+    """
+    from agent.tools.models import Paper
+
+    all_papers: list[Paper] = []
+    for segment in config.ss_year_segments:
+        label = segment["label"]
+        max_results_key = f"ss_{label}_max_results"
+        max_results = getattr(config, max_results_key, config.ss_max_results)
+        result = ss_tool.execute({
+            "query": query,
+            "max_results": max_results,
+            "year_start": segment["start"],
+            "year_end": segment["end"],
+            "min_citation_count": segment["min_citation_count"],
+        })
+        if result.success:
+            for p_data in result.data.get("papers", []):
+                paper = Paper.from_dict(p_data)
+                paper.hit_channels.append(f"ss_{label}")
+                paper.search_source_queries.append(query)
+                all_papers.append(paper)
+
+    return all_papers
 
 
 # ---------------------------------------------------------------------------
