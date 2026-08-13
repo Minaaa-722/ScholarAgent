@@ -168,7 +168,10 @@ class LatexFormatRepair:
 
         # 0c. Remove any stray \setlength{\hoffset}, \setlength{\voffset}, \setlength{\marginparwidth}
         margin_pat = re.compile(
-            r"\\setlength\s*\{\\(?:hoffset|voffset|marginparwidth|marginparsep|oddsidemargin|evensidemargin|textwidth|textheight|topmargin|headheight|headsep)\}\s*\{[^}]*\}",
+            r"\\setlength\s*\{"
+            r"\\(?:hoffset|voffset|marginparwidth|marginparsep|"
+            r"oddsidemargin|evensidemargin|textwidth|textheight|"
+            r"topmargin|headheight|headsep)\}\s*\{[^}]*\}",
         )
         for m in list(margin_pat.finditer(text)):
             entries.append(RepairEntry(
@@ -186,7 +189,7 @@ class LatexFormatRepair:
                 preamble = self.IEEE_HEADER.strip()
                 # Remove \documentclass line from the inserted preamble since it's already there
                 lines = preamble.split("\n")
-                non_docclass = [l for l in lines if "\\documentclass" not in l]
+                non_docclass = [line for line in lines if "\\documentclass" not in line]
                 extra = "\n".join(non_docclass)
                 text = text[:end_of_line + 1] + extra + "\n" + text[end_of_line + 1:]
                 entries.append(RepairEntry(
@@ -325,8 +328,6 @@ class LatexFormatRepair:
             lines = result.split("\n")
             fixed_lines = []
             hline_count = 0
-            first_hline = True
-            last_hline = False
             for line in lines:
                 stripped = line.strip()
                 if stripped == r"\hline" or stripped == r"\hline%":

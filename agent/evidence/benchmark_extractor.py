@@ -7,7 +7,6 @@ metadata.
 
 import json
 import logging
-from typing import Optional
 
 from agent.core.llm import LLMBase
 from agent.evidence.evidence_reference import EvidenceReference

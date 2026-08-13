@@ -92,7 +92,11 @@ async def get_papers_graph(harness: Harness = Depends(get_harness)):
     links = []
     for idx, p in enumerate(raw_papers):
         title = p.get("title", "Untitled")
-        source = "arxiv" if p.get("arxiv_id") else "semantic_scholar" if p.get("source") == "semantic_scholar" else "unknown"
+        source = (
+            "arxiv" if p.get("arxiv_id")
+            else "semantic_scholar" if p.get("source") == "semantic_scholar"
+            else "unknown"
+        )
         citations = p.get("citation_count", 0) or 0
         nodes.append(GraphNode(
             id=idx,
@@ -124,7 +128,11 @@ async def get_paper_detail(index: int, harness: Harness = Depends(get_harness)):
     p = raw_papers[index]
     return PaperItem(
         title=p.get("title", "Untitled"),
-        authors=", ".join(p.get("authors", [])) if isinstance(p.get("authors"), list) else str(p.get("authors", "Unknown")),
+        authors=(
+            ", ".join(p.get("authors", []))
+            if isinstance(p.get("authors"), list)
+            else str(p.get("authors", "Unknown"))
+        ),
         year=str(p.get("year", "")),
         citations=p.get("citation_count", 0) or 0,
         source="arxiv" if p.get("arxiv_id") else p.get("source", "unknown"),
@@ -135,7 +143,8 @@ async def get_paper_detail(index: int, harness: Harness = Depends(get_harness)):
 @router.get("/papers/export")
 async def export_papers_csv(harness: Harness = Depends(get_harness)):
     """Export papers as a CSV file (UTF-8 with BOM for Excel compatibility)."""
-    import csv, io
+    import csv
+    import io
     from fastapi.responses import StreamingResponse
 
     info = harness.get_task_info()

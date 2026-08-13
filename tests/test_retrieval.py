@@ -63,11 +63,19 @@ def test_dual_channel_arxiv_search_basic():
             query = params.get("query", "")
             if query.startswith("ti:"):
                 return ToolResult(success=True, data={
-                    "papers": [{"title": "Paper A", "authors": [], "year": 2024, "arxiv_id": "2401.00001", "source": "arxiv", "url": "", "categories": [], "citation_count": 0, "doi": "", "abstract": "A"}]
+                    "papers": [{
+                        "title": "Paper A", "authors": [], "year": 2024,
+                        "arxiv_id": "2401.00001", "source": "arxiv", "url": "",
+                        "categories": [], "citation_count": 0, "doi": "", "abstract": "A",
+                    }]
                 })
             elif query.startswith("abs:"):
                 return ToolResult(success=True, data={
-                    "papers": [{"title": "Paper B", "authors": [], "year": 2024, "arxiv_id": "2401.00002", "source": "arxiv", "url": "", "categories": [], "citation_count": 0, "doi": "", "abstract": "B"}]
+                    "papers": [{
+                        "title": "Paper B", "authors": [], "year": 2024,
+                        "arxiv_id": "2401.00002", "source": "arxiv", "url": "",
+                        "categories": [], "citation_count": 0, "doi": "", "abstract": "B",
+                    }]
                 })
             return ToolResult(success=True, data={"papers": []})
 
@@ -88,7 +96,11 @@ def test_dual_channel_arxiv_search_dedup():
 
     class MockArxiv(ArxivSearch):
         def execute(self, params):
-            paper = {"title": "Paper A", "authors": [], "year": 2024, "arxiv_id": "2401.00001", "source": "arxiv", "url": "", "categories": [], "citation_count": 0, "doi": "", "abstract": "A"}
+            paper = {
+                "title": "Paper A", "authors": [], "year": 2024,
+                "arxiv_id": "2401.00001", "source": "arxiv", "url": "",
+                "categories": [], "citation_count": 0, "doi": "", "abstract": "A",
+            }
             return ToolResult(success=True, data={"papers": [paper]})
 
     config = SearchConfig()
@@ -105,7 +117,11 @@ def test_dual_channel_arxiv_search_ti_priority():
 
     class MockArxiv(ArxivSearch):
         def execute(self, params):
-            paper = {"title": "Paper A", "authors": [], "year": 2024, "arxiv_id": "2401.00001", "source": "arxiv", "url": "", "categories": [], "citation_count": 0, "doi": "", "abstract": "A"}
+            paper = {
+                "title": "Paper A", "authors": [], "year": 2024,
+                "arxiv_id": "2401.00001", "source": "arxiv", "url": "",
+                "categories": [], "citation_count": 0, "doi": "", "abstract": "A",
+            }
             return ToolResult(success=True, data={"papers": [paper]})
 
     config = SearchConfig()
@@ -145,7 +161,11 @@ def test_fallback_phase6_triggered():
     class MockArxiv(ArxivSearch):
         def execute(self, params):
             return ToolResult(success=True, data={
-                "papers": [{"title": "New Paper", "authors": [], "year": 2024, "arxiv_id": "2401.99999", "source": "arxiv", "url": "", "categories": [], "citation_count": 0, "doi": "", "abstract": "New"}]
+                "papers": [{
+                    "title": "New Paper", "authors": [], "year": 2024,
+                    "arxiv_id": "2401.99999", "source": "arxiv", "url": "",
+                    "categories": [], "citation_count": 0, "doi": "", "abstract": "New",
+                }]
             })
 
     mgr = FallbackManager(MockArxiv(), None, config)
@@ -168,7 +188,11 @@ def test_fallback_phase7_single_channel():
             assert "ti:" not in params.get("query", "")
             assert "abs:" not in params.get("query", "")
             return ToolResult(success=True, data={
-                "papers": [{"title": "Phase7 Paper", "authors": [], "year": 2024, "arxiv_id": "2401.88888", "source": "arxiv", "url": "", "categories": [], "citation_count": 0, "doi": "", "abstract": "Phase7"}]
+                "papers": [{
+                    "title": "Phase7 Paper", "authors": [], "year": 2024,
+                    "arxiv_id": "2401.88888", "source": "arxiv", "url": "",
+                    "categories": [], "citation_count": 0, "doi": "", "abstract": "Phase7",
+                }]
             })
 
     mgr = FallbackManager(MockArxiv(), None, config)
@@ -227,7 +251,11 @@ def test_fallback_phase6_dedup():
     class MockArxiv(ArxivSearch):
         def execute(self, params):
             return ToolResult(success=True, data={
-                "papers": [{"title": "Duplicate Paper", "authors": [], "year": 2024, "arxiv_id": "2401.00001", "source": "arxiv", "url": "", "categories": [], "citation_count": 0, "doi": "", "abstract": "Dup"}]
+                "papers": [{
+                    "title": "Duplicate Paper", "authors": [], "year": 2024,
+                    "arxiv_id": "2401.00001", "source": "arxiv", "url": "",
+                    "categories": [], "citation_count": 0, "doi": "", "abstract": "Dup",
+                }]
             })
 
     mgr = FallbackManager(MockArxiv(), None, config)
@@ -312,9 +340,18 @@ def test_segmented_ss_search_hit_channels():
     config = SearchConfig()
     ss_tool = MagicMock()
     ss_tool.execute.side_effect = [
-        ToolResult(success=True, data={"papers": [{"title": "Frontier Paper", "authors": [], "year": 2025, "arxiv_id": "", "source": "ss", "url": "", "categories": [], "citation_count": 0, "doi": "", "abstract": "test"}]}),
-        ToolResult(success=True, data={"papers": [{"title": "Mid Paper", "authors": [], "year": 2023, "arxiv_id": "", "source": "ss", "url": "", "categories": [], "citation_count": 5, "doi": "", "abstract": "test"}]}),
-        ToolResult(success=True, data={"papers": [{"title": "Classic Paper", "authors": [], "year": 2020, "arxiv_id": "", "source": "ss", "url": "", "categories": [], "citation_count": 10, "doi": "", "abstract": "test"}]}),
+        ToolResult(success=True, data={"papers": [{
+            "title": "Frontier Paper", "authors": [], "year": 2025, "arxiv_id": "",
+            "source": "ss", "url": "", "categories": [], "citation_count": 0, "doi": "", "abstract": "test",
+        }]}),
+        ToolResult(success=True, data={"papers": [{
+            "title": "Mid Paper", "authors": [], "year": 2023, "arxiv_id": "",
+            "source": "ss", "url": "", "categories": [], "citation_count": 5, "doi": "", "abstract": "test",
+        }]}),
+        ToolResult(success=True, data={"papers": [{
+            "title": "Classic Paper", "authors": [], "year": 2020, "arxiv_id": "",
+            "source": "ss", "url": "", "categories": [], "citation_count": 10, "doi": "", "abstract": "test",
+        }]}),
     ]
 
     result = segmented_ss_search(ss_tool, "test query", config, "test topic")
@@ -332,7 +369,10 @@ def test_segmented_ss_search_search_source_queries():
 
     config = SearchConfig()
     ss_tool = MagicMock()
-    ss_tool.execute.return_value = ToolResult(success=True, data={"papers": [{"title": "Test", "authors": [], "year": 2025, "arxiv_id": "", "source": "ss", "url": "", "categories": [], "citation_count": 0, "doi": "", "abstract": "test"}]})
+    ss_tool.execute.return_value = ToolResult(success=True, data={"papers": [{
+        "title": "Test", "authors": [], "year": 2025, "arxiv_id": "",
+        "source": "ss", "url": "", "categories": [], "citation_count": 0, "doi": "", "abstract": "test",
+    }]})
 
     result = segmented_ss_search(ss_tool, "test query", config, "test topic")
     assert "test query" in result[0].search_source_queries
@@ -346,7 +386,11 @@ def test_fallback_phase6_has_survey_query():
 
     config = SearchConfig()
     arxiv_mock = MagicMock()
-    arxiv_mock.execute.return_value = ToolResult(success=True, data={"papers": [{"title": "Survey Result", "authors": [], "year": 2023, "arxiv_id": "2301.00001", "source": "arxiv", "url": "", "categories": [], "citation_count": 0, "doi": "", "abstract": "test"}]})
+    arxiv_mock.execute.return_value = ToolResult(success=True, data={"papers": [{
+        "title": "Survey Result", "authors": [], "year": 2023,
+        "arxiv_id": "2301.00001", "source": "arxiv", "url": "",
+        "categories": [], "citation_count": 0, "doi": "", "abstract": "test",
+    }]})
     mgr = FallbackManager(arxiv_mock, None, config)
     result = mgr.fallback_phase6([], "test topic", ["kw1"])
     assert len(result) >= 1

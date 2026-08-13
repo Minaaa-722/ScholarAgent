@@ -1,7 +1,6 @@
 """Tests for error recovery in the Agent harness."""
-import time
 import pytest
-from agent.core.state import AgentState, StateMachine
+from agent.core.state import AgentState
 from agent.core.harness import Harness, HarnessConfig
 from agent.core.llm import MockLLM
 

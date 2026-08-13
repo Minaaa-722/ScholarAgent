@@ -7,8 +7,7 @@ detection, and ChunkFilter for filtering chunks by evidence category.
 
 import logging
 import re
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +29,12 @@ class PDFChunk:
 _SECTION_PATTERNS: list[re.Pattern] = [
     re.compile(r"^\d+\.\s+[A-Z]"),                     # "1. Introduction"
     re.compile(r"^\d+\.\d+\s+[A-Z]"),                   # "1.1 Related Work"
-    re.compile(r"^(?:Abstract|Introduction|Related Work|Method|Approach|Experiments?|Results|Conclusion|Discussion|References|Appendix|Acknowledgments)\b", re.IGNORECASE),  # Named sections
+    re.compile(
+        r"^(?:Abstract|Introduction|Related Work|Method|Approach|"
+        r"Experiments?|Results|Conclusion|Discussion|References|"
+        r"Appendix|Acknowledgments)\b",
+        re.IGNORECASE,
+    ),  # Named sections
     re.compile(r"^[A-Z][A-Z\s]{2,}$"),                  # "METHODOLOGY" (all-caps)
     re.compile(r"^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*$"),   # "Related Work" (title case line)
 ]

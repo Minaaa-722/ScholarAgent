@@ -8,16 +8,17 @@ markers placed by the LLM during the writing stage.
 """
 
 import logging
+import re
 from typing import Optional
 
-from agent.evidence.benchmark_store import BenchmarkRecord, BenchmarkStore
+from agent.evidence.benchmark_store import BenchmarkStore
 from agent.evidence.citation_store import CitationStore
 from agent.evidence.paper_knowledge import PaperKnowledgeBase
 
 logger = logging.getLogger(__name__)
 
 # Regex to match [TABLE:...] markers
-_TABLE_PATTERN = __import__("re").compile(r"\[TABLE:([^\]]+)\]")
+_TABLE_PATTERN = re.compile(r"\[TABLE:([^\]]+)\]")
 
 
 class BenchmarkTableGenerator:

@@ -7,7 +7,6 @@ generate raw ``\\cite{}``.
 
 import logging
 import re
-from typing import Optional
 
 from agent.evidence.citation_store import CitationStore
 

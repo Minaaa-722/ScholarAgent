@@ -34,7 +34,10 @@ class LanguagePolisher(Validator):
                 passed=False,
                 score=max(0.0, 1.0 - len(issues) * 0.15),
                 issues=issues[:5],
-                repair_instructions="Replace informal expressions with academic language suitable for IEEEtran conference",
+                repair_instructions=(
+                    "Replace informal expressions with academic language "
+                    "suitable for IEEEtran conference"
+                ),
             )
         return ValidationResult(
             validator_name=self.name,

@@ -22,47 +22,53 @@ EVIDENCE_CATEGORIES = [
 ]
 
 # System prompt for the LLM evidence extraction (single paper)
-_EVIDENCE_SYSTEM_PROMPT = """You are an evidence extraction assistant. Given text chunks from a research paper, extract evidence references that support claims about the paper.
-
-For each piece of evidence, output a JSON object with:
-- "excerpt": The exact text serving as evidence (copy verbatim from the chunk)
-- "category": One of: architecture, benchmark, dataset, training, limitation
-- "page_number": The page number the evidence appears on (integer)
-- "section": The section heading where the evidence appears (string)
-- "source_type": "text", "table", or "figure"
-- "table_id": The table/figure identifier if source_type is table or figure, otherwise ""
-
-Respond with a JSON array of evidence objects. If no evidence is found, respond with an empty array [].
-
-Categories:
-- architecture: model architecture, components, layers, modules
-- benchmark: evaluation results, scores, comparisons
-- dataset: dataset descriptions, statistics, collection methods
-- training: training procedures, hyperparameters, optimization
-- limitation: limitations, drawbacks, failure cases"""
+_EVIDENCE_SYSTEM_PROMPT = (
+    "You are an evidence extraction assistant. "
+    "Given text chunks from a research paper, "
+    "extract evidence references that support claims about the paper.\n\n"
+    "For each piece of evidence, output a JSON object with:\n"
+    '- "excerpt": The exact text serving as evidence (copy verbatim from the chunk)\n'
+    '- "category": One of: architecture, benchmark, dataset, training, limitation\n'
+    '- "page_number": The page number the evidence appears on (integer)\n'
+    '- "section": The section heading where the evidence appears (string)\n'
+    '- "source_type": "text", "table", or "figure"\n'
+    '- "table_id": The table/figure identifier if source_type is table or figure, '
+    'otherwise ""\n\n'
+    "Respond with a JSON array of evidence objects. "
+    "If no evidence is found, respond with an empty array [].\n\n"
+    "Categories:\n"
+    "- architecture: model architecture, components, layers, modules\n"
+    "- benchmark: evaluation results, scores, comparisons\n"
+    "- dataset: dataset descriptions, statistics, collection methods\n"
+    "- training: training procedures, hyperparameters, optimization\n"
+    "- limitation: limitations, drawbacks, failure cases"
+)
 
 # System prompt for batch extraction (multiple papers)
-_BATCH_EVIDENCE_SYSTEM_PROMPT = """You are an evidence extraction assistant. Given text chunks from multiple research papers, extract evidence references that support claims about the papers.
-
-Each chunk is tagged with [Paper: paper_id] to identify its source paper.
-
-For each piece of evidence, output a JSON object with:
-- "paper_id": The paper_id of the source paper (must match one of the paper_ids in the input tags)
-- "excerpt": The exact text serving as evidence (copy verbatim from the chunk)
-- "category": One of: architecture, benchmark, dataset, training, limitation
-- "page_number": The page number the evidence appears on (integer)
-- "section": The section heading where the evidence appears (string)
-- "source_type": "text", "table", or "figure"
-- "table_id": The table/figure identifier if source_type is table or figure, otherwise ""
-
-Respond with a JSON array of evidence objects. If no evidence is found, respond with an empty array [].
-
-Categories:
-- architecture: model architecture, components, layers, modules
-- benchmark: evaluation results, scores, comparisons
-- dataset: dataset descriptions, statistics, collection methods
-- training: training procedures, hyperparameters, optimization
-- limitation: limitations, drawbacks, failure cases"""
+_BATCH_EVIDENCE_SYSTEM_PROMPT = (
+    "You are an evidence extraction assistant. "
+    "Given text chunks from multiple research papers, "
+    "extract evidence references that support claims about the papers.\n\n"
+    "Each chunk is tagged with [Paper: paper_id] to identify its source paper.\n\n"
+    "For each piece of evidence, output a JSON object with:\n"
+    '- "paper_id": The paper_id of the source paper '
+    "(must match one of the paper_ids in the input tags)\n"
+    '- "excerpt": The exact text serving as evidence (copy verbatim from the chunk)\n'
+    '- "category": One of: architecture, benchmark, dataset, training, limitation\n'
+    '- "page_number": The page number the evidence appears on (integer)\n'
+    '- "section": The section heading where the evidence appears (string)\n'
+    '- "source_type": "text", "table", or "figure"\n'
+    '- "table_id": The table/figure identifier if source_type is table or figure, '
+    'otherwise ""\n\n'
+    "Respond with a JSON array of evidence objects. "
+    "If no evidence is found, respond with an empty array [].\n\n"
+    "Categories:\n"
+    "- architecture: model architecture, components, layers, modules\n"
+    "- benchmark: evaluation results, scores, comparisons\n"
+    "- dataset: dataset descriptions, statistics, collection methods\n"
+    "- training: training procedures, hyperparameters, optimization\n"
+    "- limitation: limitations, drawbacks, failure cases"
+)
 
 
 class EvidenceReferenceValidator:
@@ -380,7 +386,6 @@ class EvidenceExtractor:
                 continue
 
             excerpt = item.get("excerpt", "")
-            category = item.get("category", "")
             page_number = item.get("page_number", -1)
             section = item.get("section", "")
             source_type = item.get("source_type", "text")

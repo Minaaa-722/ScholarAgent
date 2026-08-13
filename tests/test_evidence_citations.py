@@ -9,16 +9,16 @@ Covers:
 """
 import pytest
 from agent.evidence.citation_store import (
-    CitationStore, CitationEntry, _extract_first_keyword, _generate_bibtex_entry,
+    CitationStore, CitationEntry, _extract_first_keyword,
     _extract_model_name_from_title,
 )
 from agent.evidence.citation_anchor_store import CitationAnchor, CitationAnchorStore
 from agent.evidence.citation_injector import CitationInjector
-from agent.evidence.evidence_store import Claim, EvidenceStore
-from agent.evidence.evidence_reference import EvidenceReference, KnowledgeField, DatasetReference
+from agent.evidence.evidence_store import Claim
+from agent.evidence.evidence_reference import KnowledgeField
 from agent.evidence.benchmark_store import BenchmarkRecord, BenchmarkStore
 from agent.evidence.paper_knowledge import (
-    ArchitectureKnowledge, TrainingKnowledge, PaperKnowledge, PaperKnowledgeBase,
+    ArchitectureKnowledge, PaperKnowledge, PaperKnowledgeBase,
 )
 from agent.evidence.table_generator import BenchmarkTableGenerator, _parse_score
 

@@ -1,7 +1,6 @@
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Optional
 
 from agent.core.llm import LLMBase
 from agent.evidence.evidence_store import Claim, EvidenceStore

@@ -1,9 +1,7 @@
-import json
 import logging
 import re
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
@@ -20,15 +18,10 @@ from agent.tools.retrieval import (
 )
 from agent.tools.relevance import RelevanceFilter
 from agent.tools.processing import rank_papers, stratified_sample
-from agent.evidence.evidence_store import EvidenceStore, ClaimContextBuilder
+from agent.evidence.evidence_store import EvidenceStore
 from agent.evidence.claim_extractor import ClaimExtractor
 from agent.evidence.verifier import ClaimVerifier
-from agent.evidence.benchmark_store import BenchmarkStore
-from agent.evidence.paper_knowledge import PaperKnowledgeBase
-from agent.evidence.benchmark_extractor import BenchmarkExtractor
-from agent.evidence.paper_analyzer import PaperAnalyzer
-from agent.evidence.pdf_parser import PDFParser, PDFChunk
-from agent.evidence.evidence_extractor import EvidenceExtractor
+from agent.evidence.pdf_parser import PDFChunk
 from agent.evidence.evidence_reference import EvidenceReference
 from agent.evidence.context_retriever import ContextRetriever, EvidenceContextBuilder
 from agent.feedback.base import ValidationResult, Validator
@@ -461,8 +454,8 @@ class PipelineOrchestrator:
         resp = self._safe_llm_call(sys_prompt, user_msg)
         self._plan = resp.text
         # Count sections for the metrics
-        section_count = sum(1 for l in resp.text.split("\n")
-                            if l.strip().startswith(("\\section", "- **", "###")))
+        section_count = sum(1 for line in resp.text.split("\n")
+                            if line.strip().startswith(("\\section", "- **", "###")))
         self._emit_progress(
             "success", f"Research plan generated with {section_count} sections",
             {"sections_count": section_count},
@@ -477,7 +470,7 @@ class PipelineOrchestrator:
         try:
             resp = self._safe_llm_call(sys_prompt, user_msg)
             raw_lines = resp.text.strip().split("\n")
-            queries = [l.strip() for l in raw_lines if l.strip() and "->" in l]
+            queries = [line.strip() for line in raw_lines if line.strip() and "->" in line]
             if queries:
                 logger.info("Generated %d raw queries: %s", len(queries), queries)
                 return queries
@@ -498,7 +491,7 @@ class PipelineOrchestrator:
         try:
             resp = self._safe_llm_call(sys_prompt, user_msg)
             raw_lines = resp.text.strip().split("\n")
-            queries = [l.strip() for l in raw_lines if l.strip() and "->" in l]
+            queries = [line.strip() for line in raw_lines if line.strip() and "->" in line]
             if queries:
                 logger.info("Generated %d methodology queries: %s", len(queries), queries)
                 return queries
@@ -686,7 +679,6 @@ class PipelineOrchestrator:
             return []
 
         headers = {"User-Agent": "ScholarAgent/1.0"}
-        fields = "title,authors,year,citationCount,externalIds,venue,abstract,url,references"
 
         try:
             data = json.dumps({"ids": paper_ids})
@@ -999,7 +991,8 @@ class PipelineOrchestrator:
         )
 
         sys_prompt = (
-            "You are an academic writing assistant specializing in computer science and artificial intelligence surveys. "
+            "You are an academic writing assistant specializing in computer science "
+            "and artificial intelligence surveys. "
             f"{writing_instruction}\n\n{ieeetran_format_instructions}"
         )
         # Evidence context for factual grounding (from all three stores)
@@ -1489,11 +1482,11 @@ class PipelineOrchestrator:
         """Build a task info dict for progress callbacks."""
         details = {}
         if self._plan:
-            lines = [l.strip() for l in self._plan.split("\n") if l.strip()]
+            lines = [line.strip() for line in self._plan.split("\n") if line.strip()]
             details["plan"] = {
                 "summary": "Research plan generated",
                 "full_text": self._plan,
-                "section_count": sum(1 for l in lines if l.startswith(("\\section", "- **", "###"))),
+                "section_count": sum(1 for line in lines if line.startswith(("\\section", "- **", "###"))),
             }
         if self._papers:
             paper_list = []
