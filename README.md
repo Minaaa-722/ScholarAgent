@@ -11,7 +11,7 @@
 | 特性 | 描述 |
 |------|------|
 | **端到端综述生成** | 输入研究主题，自动输出符合 IEEEtran 会议格式的完整综述论文（摘要、引言、分类、方法对比、挑战与未来工作） |
-| **多源文献检索** | 集成 arXiv、Semantic Scholar、Google Scholar 三源检索，自动去重合并、按引用排序 |
+| **多源文献检索** | 集成 arXiv、Semantic Scholar 二源检索，自动去重合并、按引用排序 |
 | **证据支撑层** | 18 文件证据引擎：论断提取 → 引用锚定 → 事实校验 → 基准数据提取，确保每个论断可追溯至具体文献 |
 | **Pipeline 编排** | 1385 行 PipelineOrchestrator 驱动 PLANNING → RETRIEVAL → ANALYSIS → WRITING → VALIDATION → COMPLETE 全流程 |
 | **反馈闭环** | 5 个确定性校验器（引用检查、幻觉检测、字数统计、语言润色、连贯性检查）+ 聚合器 + 修复指令生成器，支持多轮自动修正 |
