@@ -545,12 +545,23 @@ class PipelineOrchestrator:
         config = SearchConfig()
 
         # Phase A: 方法论查询（方法类别 / 设计空间）
+        self._emit_progress("info", "Generating methodology search queries (Phase A)...")
         raw_method_queries = self._generate_methodology_queries(topic, keywords)
         method_queries = self._expand_and_dedup_queries(raw_method_queries, topic, keywords)
+        self._emit_progress(
+            "success", f"Generated {len(method_queries)} methodology queries",
+            {"queries_total": len(method_queries) + 0, "queries_completed": 0},
+        )
 
         # Phase B: 具体方法/模型查询
+        self._emit_progress("info", "Generating specific search queries (Phase B)...")
         raw_specific_queries = self._generate_search_queries(topic, keywords)
         specific_queries = self._expand_and_dedup_queries(raw_specific_queries, topic, keywords)
+        total_queries = len(method_queries) + len(specific_queries)
+        self._emit_progress(
+            "success", f"Generated {len(specific_queries)} specific queries ({total_queries} total)",
+            {"queries_total": total_queries, "queries_completed": 0},
+        )
 
         all_queries = method_queries + specific_queries
 
@@ -559,43 +570,91 @@ class PipelineOrchestrator:
         cat_filter = infer_arxiv_category(topic, topic, config.domain_cat_map, config.domain_fallback_cat)
 
         all_papers: list[Paper] = []
-        for q in all_queries:
+        for idx, q in enumerate(all_queries):
+            self._emit_progress(
+                "info", f"Searching query {idx + 1}/{total_queries}: {q[:80]}",
+                {"queries_total": total_queries, "queries_completed": idx},
+            )
             all_papers += dual_channel_arxiv_search(arxiv_tool, q, cat_filter, config)
             if ss_tool:
                 all_papers += segmented_ss_search(ss_tool, q, config, topic)
+            self._emit_progress(
+                "info", f"Query {idx + 1}/{total_queries} done — {len(all_papers)} raw papers so far",
+                {"queries_total": total_queries, "queries_completed": idx + 1, "papers_found": len(all_papers)},
+            )
 
+        self._emit_progress("info", f"Merging {len(all_papers)} raw papers from all queries...")
         merge_data = [p.to_dict() for p in all_papers]
         merge_tool = self.tools.get("merge_results")
         merged = merge_tool.execute({"results": [{"papers": merge_data, "source": "all"}]})
         merged_dicts = merged.data.get("papers", []) if merged.success else []
         papers = [Paper.from_dict(p) for p in merged_dicts]
+        self._emit_progress(
+            "success", f"Merged to {len(papers)} unique papers",
+            {"papers_found": len(papers)},
+        )
 
+        self._emit_progress("info", "Running LLM relevance filter...")
         filter_module = RelevanceFilter(self.llm, config)
         papers = filter_module.filter(papers, topic)
+        self._emit_progress(
+            "info", f"After relevance filter: {len(papers)} papers kept",
+            {"papers_found": len(papers)},
+        )
 
+        self._emit_progress("info", "Ranking and sampling papers...")
         papers = rank_papers(papers, config)
-
         papers = stratified_sample(papers, config)
+        self._emit_progress(
+            "success", f"Ranked and sampled: {len(papers)} papers selected",
+            {"papers_found": len(papers)},
+        )
 
         fallback = FallbackManager(arxiv_tool, ss_tool, config)
         if len(papers) < config.fallback_phase6_min_papers:
+            self._emit_progress(
+                "warning",
+                f"Only {len(papers)} papers — running Phase 6 fallback (survey reference expansion)...",
+            )
             papers = fallback.fallback_phase6(papers, topic, keywords)
             papers = rank_papers(papers, config)
+            self._emit_progress(
+                "success", f"After fallback Phase 6: {len(papers)} papers",
+                {"papers_found": len(papers)},
+            )
         if len(papers) < config.fallback_phase7_min_papers:
+            self._emit_progress(
+                "warning",
+                f"Only {len(papers)} papers — running Phase 7 fallback (relaxed search)...",
+            )
             papers = fallback.fallback_phase7(papers, topic)
             papers = rank_papers(papers, config)
+            self._emit_progress(
+                "success", f"After fallback Phase 7: {len(papers)} papers",
+                {"papers_found": len(papers)},
+            )
 
         self._papers = [p.to_dict() for p in papers[:self._task.max_papers]]
         self._retrieved_queries = all_queries
+        self._emit_progress(
+            "success", f"Retrieval complete: {len(self._papers)} papers selected (max {self._task.max_papers})",
+            {"papers_found": len(self._papers), "papers_downloaded": 0, "papers_total": len(self._papers)},
+        )
 
         # Register papers in CitationStore for citation resolution
+        self._emit_progress("info", "Registering papers in citation store...")
         import logging
         _log = logging.getLogger(__name__)
+        registered = 0
         for paper in self._papers:
             try:
                 self._citation_store.register(paper)
+                registered += 1
             except Exception as e:
                 _log.debug("Skipping citation registration: %s", e)
+        self._emit_progress(
+            "success", f"Registered {registered}/{len(self._papers)} papers in citation store",
+        )
 
         return self._papers
 
