@@ -150,6 +150,12 @@ export async function clearCredential(key: string) {
   return res.json();
 }
 
+export async function getInitStatus(): Promise<{ needs_initialization: boolean }> {
+  const res = await fetch(`${API_BASE}/api/credentials/init-status`);
+  if (!res.ok) throw new Error("Failed to fetch init status");
+  return res.json();
+}
+
 export interface HistoryItem {
   id: string;
   topic: string;
