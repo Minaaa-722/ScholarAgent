@@ -2,7 +2,7 @@
 
 Storage priority:
   1. System keyring (primary) — encrypted, no plaintext file
-  2. os.environ (secondary) — runtime memory, includes .env contents
+  2. Process environment variables (explicit, set by user)
   3. .env file (fallback) — lowest priority, documented plaintext risk
 
 All tests mock keyring to avoid depending on real system credential manager.
@@ -207,3 +207,103 @@ class TestCredentialsAPI:
         assert data["key"] == "LLM_API_KEY"
         # delete_password may raise if key doesn't exist; handler should catch it
         mock_del.assert_called_with("ScholarAgent", "LLM_API_KEY")
+
+    # ------------------------------------------------------------------
+    # Priority: keyring > process env > .env
+    # ------------------------------------------------------------------
+
+    @patch("api.routes.credentials._read_from_dotenv", return_value="from-dotenv")
+    @patch("keyring.get_password", return_value=None)
+    def test_priority_process_env_over_dotenv(self, mock_keyring, mock_dotenv):
+        """Process env var takes priority over .env when keyring is empty."""
+        os.environ["LLM_API_KEY"] = "from-process-env"
+        try:
+            response = client.get("/api/credentials")
+            data = response.json()
+            cred = data["credentials"]["LLM_API_KEY"]
+            assert cred["configured"] is True
+            assert cred["preview"] == "from****"
+        finally:
+            del os.environ["LLM_API_KEY"]
+
+    @patch("api.routes.credentials._read_from_dotenv", return_value="from-dotenv")
+    @patch("keyring.get_password", side_effect=lambda s, k: "from-keyring")
+    def test_priority_keyring_over_dotenv(self, mock_keyring, mock_dotenv):
+        """Keyring takes priority over .env when both are configured."""
+        for key in CREDENTIAL_KEYS:
+            os.environ.pop(key, None)
+
+        response = client.get("/api/credentials")
+        data = response.json()
+        cred = data["credentials"]["LLM_API_KEY"]
+        assert cred["configured"] is True
+        assert cred["preview"] == "from****"
+        mock_keyring.assert_any_call("ScholarAgent", "LLM_API_KEY")
+
+    @patch("api.routes.credentials._read_from_dotenv", return_value="from-dotenv")
+    @patch("keyring.get_password", side_effect=lambda s, k: "from-keyring")
+    def test_priority_keyring_over_process_env(self, mock_keyring, mock_dotenv):
+        """Keyring takes priority over process env when both are set."""
+        os.environ["LLM_API_KEY"] = "from-process-env"
+        try:
+            response = client.get("/api/credentials")
+            data = response.json()
+            cred = data["credentials"]["LLM_API_KEY"]
+            assert cred["configured"] is True
+            assert cred["preview"] == "from****"
+            mock_keyring.assert_any_call("ScholarAgent", "LLM_API_KEY")
+        finally:
+            del os.environ["LLM_API_KEY"]
+
+    # ------------------------------------------------------------------
+    # GET /api/credentials/init-status — first-run detection
+    # ------------------------------------------------------------------
+
+    @patch("api.routes.credentials._read_from_dotenv", return_value=None)
+    @patch("keyring.get_password", return_value=None)
+    def test_init_status_needs_initialization(self, mock_keyring, mock_dotenv):
+        """No credentials in keyring, env, or .env → needs_initialization=true."""
+        for key in CREDENTIAL_KEYS:
+            os.environ.pop(key, None)
+
+        response = client.get("/api/credentials/init-status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["needs_initialization"] is True
+
+    @patch("api.routes.credentials._read_from_dotenv", return_value="from-dotenv")
+    @patch("keyring.get_password", return_value=None)
+    def test_init_status_configured_via_dotenv(self, mock_keyring, mock_dotenv):
+        """LLM_API_KEY in .env → needs_initialization=false."""
+        for key in CREDENTIAL_KEYS:
+            os.environ.pop(key, None)
+
+        response = client.get("/api/credentials/init-status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["needs_initialization"] is False
+
+    @patch("api.routes.credentials._read_from_dotenv", return_value=None)
+    @patch("keyring.get_password", side_effect=lambda s, k: "sk-from-keyring")
+    def test_init_status_configured_via_keyring(self, mock_keyring, mock_dotenv):
+        """LLM_API_KEY in keyring → needs_initialization=false."""
+        for key in CREDENTIAL_KEYS:
+            os.environ.pop(key, None)
+
+        response = client.get("/api/credentials/init-status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["needs_initialization"] is False
+
+    @patch("api.routes.credentials._read_from_dotenv", return_value=None)
+    @patch("keyring.get_password", return_value=None)
+    def test_init_status_configured_via_process_env(self, mock_keyring, mock_dotenv):
+        """LLM_API_KEY in process env → needs_initialization=false."""
+        os.environ["LLM_API_KEY"] = "sk-from-process-env"
+        try:
+            response = client.get("/api/credentials/init-status")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["needs_initialization"] is False
+        finally:
+            del os.environ["LLM_API_KEY"]
