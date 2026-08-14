@@ -48,6 +48,8 @@ cd web && npm install && cd ..
 cp .env.example .env
 # 编辑 .env，填入 LLM_API_KEY
 # 可选自定义 LLM_BASE_URL 和 LLM_MODEL
+
+# 无前端环境：启动后端后访问 http://localhost:8000/docs → PUT /api/credentials 管理 API Key
 ```
 
 ### 运行
@@ -315,7 +317,7 @@ ScholarAgent 采用 **Mock-LLM 驱动测试**，所有测试不依赖真实 LLM 
 
 - API Key 通过系统凭据管理器存储（Windows Credential Manager / macOS Keychain），加密保护
 - 运行时回退至 `.env` 文件加载（已加入 `.gitignore`），文档标注明文风险
-- Web UI 凭据管理页面（`/credentials`）提供隐藏输入、掩码预览、更新/清除功能
+- Web UI 凭据管理页面（`/credentials`）提供隐藏输入、掩码预览、更新/清除功能；无前端环境可通过 FastAPI 文档页面（`http://localhost:8000/docs` → PUT /api/credentials）管理
 - 操作安全守卫拦截 `rm -rf`、`DROP TABLE` 等危险命令
 - 速率限制防止 API 滥用（默认 30 次/分钟）
 - 来源过滤拒绝低质量来源和黑名单期刊

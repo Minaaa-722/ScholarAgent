@@ -24,6 +24,23 @@ app.add_middleware(
 # Lazy init: use OpenAILLM if API key is set, otherwise fall back to MockLLM
 # Use _resolve_credential to check all sources (keyring > process env > .env)
 _api_key = _resolve_credential("LLM_API_KEY") or ""
+if not _api_key:
+    print(
+        "\n" + "=" * 60,
+        "\n  ⚠️  LLM_API_KEY 未配置",
+        "\n",
+        "\n  请通过以下方式之一配置 API Key：",
+        "\n",
+        "\n  ① 启动 Web 前端，进入 Credentials 页面录入",
+        "\n     （推荐，加密存储至操作系统凭据管理器）",
+        "\n",
+        "\n  ② 启动后端后访问 FastAPI 文档页面在线配置",
+        "\n     http://localhost:8000/docs → PUT /api/credentials",
+        "\n",
+        "\n  ③ 编辑项目根目录 .env 文件（明文，仅建议开发环境）",
+        "\n",
+        "\n" + "=" * 60,
+    )
 if _api_key:
     _llm = OpenAILLM(api_key=_api_key)
 else:

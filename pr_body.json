@@ -1,0 +1,6 @@
+{
+  "title": "fix: credential loading priority + first-run bootstrap + LLM instance sync",
+  "head": "worktree-worktree-fix-credential-priority-bootstrap",
+  "base": "master",
+  "body": "## 变更内容\n\n### 1. 凭据读取优先级（keyring > 进程 env > .env）\n- 新增 `_read_from_dotenv()` 直接读取 .env 文件，实现三层分离\n- 修改 `_resolve_credential()` 为 keyring → os.environ → .env\n\n### 2. 首次运行主动引导\n- 新增 `GET /api/credentials/init-status` 端点\n- 前端 Layout 添加引导 Banner，未配置 LLM 密钥时引导至 Credentials 页面\n\n### 3. 运行时 LLM 实例同步（修复关键 Bug）\n- 新增 `OpenAILLM.set_api_key()` 方法运行时更新密钥\n- PUT /api/credentials 写入 LLM_API_KEY 后同步更新运行时 LLM 实例\n- 初始加载改用 `_resolve_credential()`，尊重 keyring 中已有的密钥\n\n### 测试\n- 517 tests passed，0 failed\n- 新增 9 个测试用例：优先级 3 个 + 初始化状态 4 个 + LLM 同步 2 个"
+}
