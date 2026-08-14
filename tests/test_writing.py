@@ -14,12 +14,14 @@ from agent.tools.base import ToolResult
 # ---------------------------------------------------------------------------
 
 def test_write_chapter_name():
+    """WriteChapter should have the correct name and description."""
     tool = WriteChapter()
     assert tool.name == "write_chapter"
     assert tool.description is not None
 
 
 def test_write_chapter_execute():
+    """WriteChapter should return ToolResult with chapter content."""
     tool = WriteChapter()
     result = tool.execute({"chapter_title": "Introduction"})
     assert isinstance(result, ToolResult)
@@ -29,6 +31,7 @@ def test_write_chapter_execute():
 
 
 def test_write_chapter_empty_title():
+    """WriteChapter should handle empty title gracefully."""
     tool = WriteChapter()
     result = tool.execute({"chapter_title": ""})
     assert result.success is True
@@ -36,6 +39,7 @@ def test_write_chapter_empty_title():
 
 
 def test_write_chapter_missing_title():
+    """WriteChapter should handle missing title parameter."""
     tool = WriteChapter()
     result = tool.execute({})
     assert result.success is True
@@ -47,12 +51,14 @@ def test_write_chapter_missing_title():
 # ---------------------------------------------------------------------------
 
 def test_expand_paragraph_name():
+    """ExpandParagraph should have the correct name and description."""
     tool = ExpandParagraph()
     assert tool.name == "expand_paragraph"
     assert tool.description is not None
 
 
 def test_expand_paragraph_execute():
+    """ExpandParagraph should return ToolResult with expanded content."""
     tool = ExpandParagraph()
     result = tool.execute({"section": "Introduction", "paragraph_index": 2})
     assert isinstance(result, ToolResult)
@@ -63,6 +69,7 @@ def test_expand_paragraph_execute():
 
 
 def test_expand_paragraph_defaults():
+    """ExpandParagraph should use defaults for missing params."""
     tool = ExpandParagraph()
     result = tool.execute({})
     assert result.success is True
@@ -75,12 +82,14 @@ def test_expand_paragraph_defaults():
 # ---------------------------------------------------------------------------
 
 def test_truncate_paragraph_name():
+    """TruncateParagraph should have the correct name and description."""
     tool = TruncateParagraph()
     assert tool.name == "truncate_paragraph"
     assert tool.description is not None
 
 
 def test_truncate_paragraph_execute():
+    """TruncateParagraph should return ToolResult with truncated content."""
     tool = TruncateParagraph()
     result = tool.execute({"section": "Related Work", "paragraph_index": 1})
     assert isinstance(result, ToolResult)
@@ -91,6 +100,7 @@ def test_truncate_paragraph_execute():
 
 
 def test_truncate_paragraph_defaults():
+    """TruncateParagraph should use defaults for missing params."""
     tool = TruncateParagraph()
     result = tool.execute({})
     assert result.success is True
@@ -103,12 +113,14 @@ def test_truncate_paragraph_defaults():
 # ---------------------------------------------------------------------------
 
 def test_insert_references_name():
+    """InsertReferences should have the correct name and description."""
     tool = InsertReferences()
     assert tool.name == "insert_references"
     assert tool.description is not None
 
 
 def test_insert_references_execute():
+    """InsertReferences should format references with numbered brackets."""
     tool = InsertReferences()
     papers = [
         {"title": "Paper One"},
@@ -124,6 +136,7 @@ def test_insert_references_execute():
 
 
 def test_insert_references_empty():
+    """InsertReferences should handle empty paper list."""
     tool = InsertReferences()
     result = tool.execute({"papers": []})
     assert result.success is True
@@ -132,6 +145,7 @@ def test_insert_references_empty():
 
 
 def test_insert_references_missing_papers():
+    """InsertReferences should handle missing papers parameter."""
     tool = InsertReferences()
     result = tool.execute({})
     assert result.success is True
@@ -140,6 +154,7 @@ def test_insert_references_missing_papers():
 
 
 def test_insert_references_unknown_title():
+    """InsertReferences should handle papers without a title key."""
     tool = InsertReferences()
     papers = [{"no_title": True}]
     result = tool.execute({"papers": papers})

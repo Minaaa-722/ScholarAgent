@@ -9,6 +9,7 @@ from agent.core.llm import LLMBase, MockLLM, LLMResponse, OpenAILLM
 # ---------------------------------------------------------------------------
 
 def test_mock_llm_returns_fixed_response():
+    """MockLLM should return text from fixed_response."""
     llm = MockLLM(fixed_response="Test output")
     response = llm.generate("system prompt", "user message")
     assert response.text == "Test output"
@@ -16,6 +17,7 @@ def test_mock_llm_returns_fixed_response():
 
 
 def test_mock_llm_returns_tool_call():
+    """MockLLM should return tool_calls from fixed_tool_call."""
     llm = MockLLM(fixed_tool_call={"name": "test_tool", "arguments": {"key": "value"}})
     response = llm.generate("system", "call tool")
     assert len(response.tool_calls) == 1
@@ -23,6 +25,7 @@ def test_mock_llm_returns_tool_call():
 
 
 def test_mock_llm_records_conversation():
+    """MockLLM should record (system, user) pairs in conversation_history."""
     llm = MockLLM(fixed_response="ok")
     llm.generate("sys1", "msg1")
     llm.generate("sys2", "msg2")
@@ -31,6 +34,7 @@ def test_mock_llm_records_conversation():
 
 
 def test_llm_base_cannot_be_instantiated():
+    """LLMBase is abstract and should raise TypeError."""
     with pytest.raises(TypeError):
         LLMBase()  # Abstract class
 
@@ -40,12 +44,14 @@ def test_llm_base_cannot_be_instantiated():
 # ---------------------------------------------------------------------------
 
 def test_llm_response_defaults():
+    """LLMResponse should default tool_calls to empty list."""
     resp = LLMResponse(text="hello")
     assert resp.text == "hello"
     assert resp.tool_calls == []
 
 
 def test_llm_response_with_tool_calls():
+    """LLMResponse should accept tool_calls at construction."""
     resp = LLMResponse(text="hello", tool_calls=[{"name": "tool1"}])
     assert len(resp.tool_calls) == 1
 
@@ -56,7 +62,7 @@ def test_llm_response_with_tool_calls():
 
 @patch("openai.OpenAI")
 def test_openai_llm_init_defaults(mock_openai):
-    """Should use default values when no env vars are set."""
+    """Should raise ValueError when no API key is available."""
     with patch.dict("os.environ", {}, clear=True):
         with pytest.raises(ValueError, match="API key is required"):
             OpenAILLM()
@@ -64,7 +70,7 @@ def test_openai_llm_init_defaults(mock_openai):
 
 @patch("openai.OpenAI")
 def test_openai_llm_init_with_env(mock_openai):
-    """Should read from env vars when no params passed."""
+    """Should read LLM_API_KEY, LLM_MODEL, LLM_BASE_URL from env."""
     import os
     with patch.dict(os.environ, {
         "LLM_API_KEY": "sk-env-key",
@@ -90,7 +96,7 @@ def test_openai_llm_init_with_params(mock_openai):
 
 @patch("openai.OpenAI")
 def test_openai_llm_raises_on_missing_openai(mock_openai):
-    """Should raise ImportError when openai is not installed."""
+    """Should raise ImportError when openai package is not installed."""
     import sys
     with patch.dict(sys.modules, {"openai": None}):
         with pytest.raises(ImportError, match="openai package is required"):
@@ -120,7 +126,7 @@ def test_openai_llm_set_api_key_updates_client(mock_openai):
 
 @patch("openai.OpenAI")
 def test_openai_llm_set_api_key_empty_value(mock_openai):
-    """Empty value should be silently ignored."""
+    """Empty value should be silently ignored, keeping old key."""
     mock_client = MagicMock()
     mock_openai.return_value = mock_client
     llm = OpenAILLM(api_key="sk-old-key")
@@ -298,6 +304,7 @@ def test_openai_generate_last_resort_guard(mock_openai):
 
 @patch("openai.OpenAI")
 def test_build_messages(mock_openai):
+    """_build_messages should return system and user message dicts."""
     llm = OpenAILLM(api_key="sk-test")
     messages = llm._build_messages("system prompt", "user message")
     assert len(messages) == 2
@@ -356,6 +363,7 @@ def test_truncate_if_needed_unknown_model(mock_openai):
 
 @patch("openai.OpenAI")
 def test_is_retryable_rate_limit(mock_openai):
+    """RateLimitError should be retryable."""
     llm = OpenAILLM(api_key="sk-test")
     from openai import RateLimitError
     error = RateLimitError("Rate limited", response=MagicMock(), body=MagicMock())
@@ -364,6 +372,7 @@ def test_is_retryable_rate_limit(mock_openai):
 
 @patch("openai.OpenAI")
 def test_is_retryable_timeout(mock_openai):
+    """APITimeoutError should be retryable."""
     llm = OpenAILLM(api_key="sk-test")
     from openai import APITimeoutError
     error = APITimeoutError("Timeout")
@@ -372,6 +381,7 @@ def test_is_retryable_timeout(mock_openai):
 
 @patch("openai.OpenAI")
 def test_is_retryable_connection_error(mock_openai):
+    """APIConnectionError should be retryable."""
     llm = OpenAILLM(api_key="sk-test")
     from openai import APIConnectionError
     import httpx
@@ -382,6 +392,7 @@ def test_is_retryable_connection_error(mock_openai):
 
 @patch("openai.OpenAI")
 def test_is_retryable_internal_server_error(mock_openai):
+    """InternalServerError should be retryable."""
     llm = OpenAILLM(api_key="sk-test")
     from openai import InternalServerError
     error = InternalServerError("Server error", response=MagicMock(), body=MagicMock())
@@ -412,7 +423,7 @@ def test_is_retryable_bad_request_error(mock_openai):
 
 @patch("openai.OpenAI")
 def test_is_retryable_http_status_code(mock_openai):
-    """HTTP status code 500 should be retryable."""
+    """HTTP status code 500 should be retryable, 401 should not."""
     llm = OpenAILLM(api_key="sk-test")
 
     class ErrorWithCode(Exception):
@@ -444,6 +455,7 @@ def test_is_retryable_unknown_error(mock_openai):
 
 @patch("openai.OpenAI")
 def test_model_max_tokens_known(mock_openai):
+    """Known model should have max tokens in the dict."""
     llm = OpenAILLM(api_key="sk-test", model="gpt-4o")
     assert llm._MODEL_MAX_TOKENS["gpt-4o"] == 128_000
 
@@ -452,5 +464,4 @@ def test_model_max_tokens_known(mock_openai):
 def test_model_max_tokens_default(mock_openai):
     """Unknown model defaults to 128_000."""
     llm = OpenAILLM(api_key="sk-test", model="custom-model")
-    # _truncate_if_needed uses _MODEL_MAX_TOKENS.get(model, 128_000)
     assert llm._MODEL_MAX_TOKENS.get("custom-model", 128_000) == 128_000

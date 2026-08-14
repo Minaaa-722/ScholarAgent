@@ -18,8 +18,28 @@ def mock_llm():
 
 @pytest.fixture
 def harness(mock_llm):
-    h = Harness(config=HarnessConfig(), llm=mock_llm)
-    return h
+    """Create a Harness with default config and MockLLM."""
+    return Harness(config=HarnessConfig(), llm=mock_llm)
+
+
+@pytest.fixture
+def started_harness(harness):
+    """Create a Harness that has been started with a test topic."""
+    harness.start(topic="Test Topic")
+    return harness
+
+
+def _walk_to(harness, target_state):
+    """Walk the state machine through valid transitions to reach target_state."""
+    from agent.core.state import AgentState as S
+    path = {
+        S.VALIDATION: [S.RETRIEVAL, S.ANALYSIS, S.WRITING, S.VALIDATION],
+        S.WRITING: [S.RETRIEVAL, S.ANALYSIS, S.WRITING],
+        S.ANALYSIS: [S.RETRIEVAL, S.ANALYSIS],
+        S.RETRIEVAL: [S.RETRIEVAL],
+    }
+    for s in path.get(target_state, []):
+        harness.state.transition_to(s)
 
 
 # ---------------------------------------------------------------------------
@@ -27,6 +47,7 @@ def harness(mock_llm):
 # ---------------------------------------------------------------------------
 
 def test_harness_initial_state():
+    """Verify Harness starts in IDLE with clean state."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     assert h.state.current_state == AgentState.IDLE
@@ -40,6 +61,7 @@ def test_harness_initial_state():
 
 
 def test_harness_start_transitions_to_planning():
+    """Calling start() should transition state to PLANNING."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h.start(topic="Test Topic")
@@ -49,6 +71,7 @@ def test_harness_start_transitions_to_planning():
 
 
 def test_harness_start_with_keywords():
+    """Comma-separated keywords should be parsed into a list."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h.start(topic="Test", keywords="kw1, kw2, kw3")
@@ -56,6 +79,7 @@ def test_harness_start_with_keywords():
 
 
 def test_harness_start_with_year_range():
+    """Year range should override config defaults."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h.start(topic="Test", year_start=2019, year_end=2025)
@@ -64,6 +88,7 @@ def test_harness_start_with_year_range():
 
 
 def test_harness_start_with_empty_keywords():
+    """Empty keywords string should produce an empty list."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h.start(topic="Test", keywords="")
@@ -71,6 +96,7 @@ def test_harness_start_with_empty_keywords():
 
 
 def test_harness_start_resets_state():
+    """Calling start() a second time should reset all state."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h.start(topic="First")
@@ -84,6 +110,7 @@ def test_harness_start_resets_state():
 # ---------------------------------------------------------------------------
 
 def test_harness_get_task_info_basic():
+    """get_task_info should return topic, keywords, status after start()."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h.start(topic="Test Topic")
@@ -93,6 +120,7 @@ def test_harness_get_task_info_basic():
 
 
 def test_get_task_info_no_task():
+    """Without a task, get_task_info should omit topic and show IDLE status."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     info = h.get_task_info()
@@ -101,6 +129,7 @@ def test_get_task_info_no_task():
 
 
 def test_get_task_info_with_plan():
+    """When _plan is set, get_task_info should include plan details."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h.start(topic="Test")
@@ -113,6 +142,7 @@ def test_get_task_info_with_plan():
 
 
 def test_get_task_info_with_papers():
+    """When _papers is set, get_task_info should include paper list with et al."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h.start(topic="Test")
@@ -130,6 +160,7 @@ def test_get_task_info_with_papers():
 
 
 def test_get_task_info_with_queries():
+    """When _retrieved_queries is set, get_task_info should include them."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h.start(topic="Test")
@@ -139,6 +170,7 @@ def test_get_task_info_with_queries():
 
 
 def test_get_task_info_with_analysis():
+    """When _analysis is set, get_task_info should include analysis summary."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h.start(topic="Test")
@@ -150,6 +182,7 @@ def test_get_task_info_with_analysis():
 
 
 def test_get_task_info_with_sections():
+    """When _draft_sections is set, get_task_info should include sections."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h.start(topic="Test")
@@ -159,6 +192,7 @@ def test_get_task_info_with_sections():
 
 
 def test_get_task_info_with_validation_scores():
+    """When _validation_scores is set, get_task_info should include validation."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h.start(topic="Test")
@@ -168,6 +202,7 @@ def test_get_task_info_with_validation_scores():
 
 
 def test_get_task_info_paper_source_arxiv():
+    """Papers with arxiv_id should have source='arxiv'."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h.start(topic="Test")
@@ -182,12 +217,14 @@ def test_get_task_info_paper_source_arxiv():
 # ---------------------------------------------------------------------------
 
 def test_get_paper_empty():
+    """get_paper should return empty dict when no result exists."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     assert h.get_paper() == {}
 
 
 def test_get_paper_with_result():
+    """get_paper should return last_result when set."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h.last_result = {"status": "complete", "paper": "full paper text"}
@@ -195,12 +232,14 @@ def test_get_paper_with_result():
 
 
 def test_get_execution_log_empty():
+    """get_execution_log should return empty list initially."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     assert h.get_execution_log() == []
 
 
 def test_get_execution_log_with_entries():
+    """get_execution_log should return logged entries."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h.execution_log.append({"stage": "TEST", "data": "value"})
@@ -212,29 +251,23 @@ def test_get_execution_log_with_entries():
 # ---------------------------------------------------------------------------
 
 def test_inject_feedback_passed():
+    """When validation passes, inject_feedback should transition to COMPLETE."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h.start(topic="Test")
-    # Walk through valid states to reach VALIDATION
-    h.state.transition_to(AgentState.RETRIEVAL)
-    h.state.transition_to(AgentState.ANALYSIS)
-    h.state.transition_to(AgentState.WRITING)
-    h.state.transition_to(AgentState.VALIDATION)
+    _walk_to(h, AgentState.VALIDATION)
     results = [ValidationResult(validator_name="test", passed=True, score=0.95)]
     h.inject_feedback(results)
-    # Overall passed → transition to COMPLETE
     assert h.state.current_state == AgentState.COMPLETE
 
 
 def test_inject_feedback_max_retries():
+    """When retries are exhausted, inject_feedback should set warnings and complete."""
     llm = MockLLM()
     config = HarnessConfig(max_retries=2)
     h = Harness(config=config, llm=llm)
     h.start(topic="Test")
-    h.state.transition_to(AgentState.RETRIEVAL)
-    h.state.transition_to(AgentState.ANALYSIS)
-    h.state.transition_to(AgentState.WRITING)
-    h.state.transition_to(AgentState.VALIDATION)
+    _walk_to(h, AgentState.VALIDATION)
     h.retry_count = 2  # max_retries reached
     results = [ValidationResult(validator_name="test", passed=False, score=0.3)]
     h.inject_feedback(results)
@@ -243,14 +276,12 @@ def test_inject_feedback_max_retries():
 
 
 def test_inject_feedback_retry():
+    """When feedback fails and retries remain, inject_feedback should retry writing."""
     llm = MockLLM()
     config = HarnessConfig(max_retries=3)
     h = Harness(config=config, llm=llm)
     h.start(topic="Test")
-    h.state.transition_to(AgentState.RETRIEVAL)
-    h.state.transition_to(AgentState.ANALYSIS)
-    h.state.transition_to(AgentState.WRITING)
-    h.state.transition_to(AgentState.VALIDATION)
+    _walk_to(h, AgentState.VALIDATION)
     results = [ValidationResult(validator_name="test", passed=False, score=0.3)]
     h.inject_feedback(results)
     assert h.retry_count == 1
@@ -262,6 +293,7 @@ def test_inject_feedback_retry():
 # ---------------------------------------------------------------------------
 
 def test_harness_interrupt_and_resume():
+    """Interrupt should pause pipeline; resume should restore previous state."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h.start(topic="Test")
@@ -278,6 +310,7 @@ def test_harness_interrupt_and_resume():
 # ---------------------------------------------------------------------------
 
 def test_cancel_resets_state():
+    """cancel() should fully reset harness to idle state."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h.start(topic="Test")
@@ -296,6 +329,7 @@ def test_cancel_resets_state():
 
 
 def test_cancel_bumps_generation():
+    """cancel() should increment generation counter to invalidate stale threads."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     gen_before = h._pipeline_generation
@@ -304,6 +338,7 @@ def test_cancel_bumps_generation():
 
 
 def test_cancel_creates_fresh_interrupt_event():
+    """cancel() should create a new interrupt event, not reuse the old one."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     old_event = h._interrupt_event
@@ -318,6 +353,7 @@ def test_cancel_creates_fresh_interrupt_event():
 # ---------------------------------------------------------------------------
 
 def test_submit_human_feedback():
+    """submit_human_feedback should add entry to feedback queue."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     result = h.submit_human_feedback("general", "Please improve the abstract")
@@ -328,9 +364,9 @@ def test_submit_human_feedback():
 
 
 def test_submit_human_feedback_thread_safe():
+    """submit_human_feedback should work with concurrent access via lock."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
-    # Simulate concurrent access
     lock = h._feedback_lock
     with lock:
         h.feedback_queue.append({"dummy": True})
@@ -344,15 +380,13 @@ def test_submit_human_feedback_thread_safe():
 # ---------------------------------------------------------------------------
 
 def test_run_catches_fatal_error():
-    """run() should catch exceptions and return an error result."""
+    """run() should catch LLM exceptions and return error result."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
-    # Force _generate_plan to fail by making the LLM raise
     def failing_generate(*args, **kwargs):
         raise RuntimeError("LLM unavailable")
     h.llm.generate = failing_generate
     result = h.run(topic="Test", keywords="kw")
-    # The orchestrator catches the error internally and returns PipelineResult(status="error")
     assert result["status"] == "error"
 
 
@@ -361,15 +395,16 @@ def test_run_catches_fatal_error():
 # ---------------------------------------------------------------------------
 
 def test_run_async_starts_background_thread():
+    """run_async should set pipeline_running and increment generation."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h.run_async(topic="Test", keywords="kw")
     assert h._pipeline_running is True
-    # Pipeline generation should be incremented
     assert h._pipeline_generation >= 1
 
 
 def test_run_async_generation_tracking():
+    """run_async should increment generation counter for each call."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     gen_before = h._pipeline_generation
@@ -382,6 +417,7 @@ def test_run_async_generation_tracking():
 # ---------------------------------------------------------------------------
 
 def test_safe_llm_call_success():
+    """_safe_llm_call should return LLM response on success."""
     llm = MockLLM(fixed_response="Response text")
     h = Harness(config=HarnessConfig(), llm=llm)
     resp = h._safe_llm_call("system", "user")
@@ -389,6 +425,7 @@ def test_safe_llm_call_success():
 
 
 def test_safe_llm_call_with_tools():
+    """_safe_llm_call should pass tool definitions when use_tools=True."""
     llm = MockLLM(fixed_response="Response")
     h = Harness(config=HarnessConfig(), llm=llm)
     resp = h._safe_llm_call("system", "user", use_tools=True)
@@ -396,6 +433,7 @@ def test_safe_llm_call_with_tools():
 
 
 def test_safe_llm_call_raises_runtime_error():
+    """_safe_llm_call should wrap LLM errors in RuntimeError."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     def failing_generate(*args, **kwargs):
@@ -410,6 +448,7 @@ def test_safe_llm_call_raises_runtime_error():
 # ---------------------------------------------------------------------------
 
 def test_safe_transition_valid():
+    """_safe_transition should perform valid state transitions."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h._safe_transition(AgentState.PLANNING)
@@ -417,11 +456,10 @@ def test_safe_transition_valid():
 
 
 def test_safe_transition_invalid():
+    """_safe_transition should swallow invalid state transitions."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
-    # IDLE → WRITING is invalid, but _safe_transition should swallow
     h._safe_transition(AgentState.WRITING)
-    # State should remain IDLE
     assert h.state.current_state == AgentState.IDLE
 
 
@@ -430,6 +468,7 @@ def test_safe_transition_invalid():
 # ---------------------------------------------------------------------------
 
 def test_progress_updates_state():
+    """_progress should update current_stage and current_message."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h._progress(None, "test_stage", "Test message")
@@ -438,6 +477,7 @@ def test_progress_updates_state():
 
 
 def test_progress_with_callback():
+    """_progress should invoke the callback when provided."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     captured = []
@@ -453,6 +493,7 @@ def test_progress_with_callback():
 # ---------------------------------------------------------------------------
 
 def test_extract_sections_basic():
+    """_extract_sections should parse LaTeX section commands."""
     draft = r"""
     \section{Introduction}
     Text here.
@@ -468,11 +509,13 @@ def test_extract_sections_basic():
 
 
 def test_extract_sections_empty():
+    """_extract_sections should return empty list for text without sections."""
     sections = Harness._extract_sections("No sections here")
     assert sections == []
 
 
 def test_extract_sections_subsubsection():
+    """_extract_sections should handle subsubsections with level=2."""
     draft = r"""
     \section{Main}
     \subsection{Sub}
@@ -488,6 +531,7 @@ def test_extract_sections_subsubsection():
 # ---------------------------------------------------------------------------
 
 def test_result_basic():
+    """_result should build a result dict with status, paper, rounds."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     result = h._result("paper text", "complete", 2)
@@ -499,6 +543,7 @@ def test_result_basic():
 
 
 def test_result_with_warnings():
+    """_result should include has_warnings and retry_count when set."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h.has_warnings = True
@@ -509,9 +554,9 @@ def test_result_with_warnings():
 
 
 def test_result_with_latex_repair_log():
+    """_result should include latex_repair_log when available."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
-    # Create a mock repair log
     class MockEntry:
         def __init__(self):
             self.rule = "test_rule"
@@ -532,6 +577,7 @@ def test_result_with_latex_repair_log():
 
 
 def test_result_without_latex_repair_log():
+    """_result should omit latex_repair_log when None."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h.latex_repair_log = None
@@ -550,8 +596,6 @@ def test_format_repair_runs():
     draft = "\\section{Introduction}\nSome text."
     result = h._format_repair(draft)
     assert isinstance(result, str)
-    # The repair should return the fixed draft
-    assert result is not None
 
 
 # ---------------------------------------------------------------------------
@@ -559,6 +603,7 @@ def test_format_repair_runs():
 # ---------------------------------------------------------------------------
 
 def test_restart_requires_error_state():
+    """restart() should raise if not in ERROR state."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     with pytest.raises(ValueError, match="Can only restart from ERROR state"):
@@ -566,9 +611,9 @@ def test_restart_requires_error_state():
 
 
 def test_restart_requires_task():
+    """restart() should raise if no task is set."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
-    # Force state to ERROR
     h.state = StateMachine()
     h.state.transition_to(AgentState.PLANNING)
     h.state.transition_to(AgentState.ERROR)
@@ -577,16 +622,15 @@ def test_restart_requires_task():
 
 
 def test_restart_resets_and_launches():
+    """restart() should reset error state and launch async pipeline."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h.start(topic="Test", keywords="kw")
-    # Force state to ERROR
     h.state = StateMachine()
     h.state.transition_to(AgentState.PLANNING)
     h.state.transition_to(AgentState.RETRIEVAL)
     h.state.transition_to(AgentState.ERROR)
     h.restart()
-    # After restart, should be running async
     assert h._pipeline_retry_count == 0
     assert h._last_failed_stage is None
     assert h._error_message == ""
@@ -597,6 +641,7 @@ def test_restart_resets_and_launches():
 # ---------------------------------------------------------------------------
 
 def test_ensure_state_already_there():
+    """_ensure_state should not transition if already in target state."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h.state.transition_to(AgentState.PLANNING)
@@ -605,6 +650,7 @@ def test_ensure_state_already_there():
 
 
 def test_ensure_state_transitions():
+    """_ensure_state should transition to target state if not already there."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h.state.transition_to(AgentState.PLANNING)
@@ -617,6 +663,7 @@ def test_ensure_state_transitions():
 # ---------------------------------------------------------------------------
 
 def test_log_appends_entry():
+    """_log should append a timestamped entry to execution_log."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h._log("TEST", {"key": "value"})
@@ -627,10 +674,11 @@ def test_log_appends_entry():
 
 
 # ---------------------------------------------------------------------------
-# _run_validators (called via inject_feedback, but test the method directly)
+# _run_validators
 # ---------------------------------------------------------------------------
 
 def test_run_validators_with_citations():
+    """_run_validators should extract citation IDs from draft."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     draft = "Some text \\cite{ref1} and \\cite{ref2,ref3}."
@@ -641,6 +689,7 @@ def test_run_validators_with_citations():
 
 
 def test_run_validators_empty_draft():
+    """_run_validators should handle empty draft without error."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     results = h._run_validators("")
@@ -652,9 +701,9 @@ def test_run_validators_empty_draft():
 # ---------------------------------------------------------------------------
 
 def test_sync_orchestrator_state():
+    """_sync_orchestrator_state should copy all state from orchestrator."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
-    # Set orchestrator state
     h._orchestrator._papers = [{"title": "Synced"}]
     h._orchestrator._plan = "Synced plan"
     h._orchestrator._analysis = "Synced analysis"
@@ -679,6 +728,7 @@ def test_sync_orchestrator_state():
 # ---------------------------------------------------------------------------
 
 def test_retry_on_error_success_first_try():
+    """_retry_on_error should return the function result on first success."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     h.start(topic="Test")
@@ -687,6 +737,7 @@ def test_retry_on_error_success_first_try():
 
 
 def test_retry_on_error_fails_then_raises():
+    """_retry_on_error should exhaust retries then raise."""
     llm = MockLLM()
     config = HarnessConfig(max_pipeline_retries=0)
     h = Harness(config=config, llm=llm)
@@ -698,6 +749,6 @@ def test_retry_on_error_fails_then_raises():
         raise RuntimeError("Stage failed")
     with pytest.raises(RuntimeError, match="Stage failed"):
         h._retry_on_error(failing_fn, AgentState.PLANNING, None)
-    assert call_count == 1  # Only 1 attempt since max_pipeline_retries = 0
+    assert call_count == 1
     assert h._pipeline_retry_count == 1
     assert h._last_failed_stage == AgentState.PLANNING

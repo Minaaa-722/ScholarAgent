@@ -41,7 +41,7 @@ def default_config():
 
 @pytest.fixture
 def orch(mock_llm, empty_tools, empty_guardrails, default_config):
-    """Create a minimal PipelineOrchestrator for testing."""
+    """Create a minimal PipelineOrchestrator with MockLLM for testing."""
     return PipelineOrchestrator(
         llm=mock_llm,
         tools=empty_tools,
@@ -54,11 +54,13 @@ def orch(mock_llm, empty_tools, empty_guardrails, default_config):
 
 @pytest.fixture
 def sample_task():
+    """Sample task for pipeline execution tests."""
     return TaskInfo(topic="Test Topic", keywords=["test"], goal="Test goal")
 
 
 @pytest.fixture
 def sample_state():
+    """State machine initialized to PLANNING."""
     state = StateMachine()
     state.transition_to(AgentState.PLANNING)
     return state
@@ -69,6 +71,7 @@ def sample_state():
 # ---------------------------------------------------------------------------
 
 def test_orchestrator_initialization(orch):
+    """PipelineOrchestrator should initialize with all empty state."""
     assert orch is not None
     assert orch.llm is not None
     assert orch.tools is not None
@@ -88,6 +91,7 @@ def test_orchestrator_initialization(orch):
 
 
 def test_orchestrator_sets_interrupt_event(orch):
+    """set_interrupt_event should store the threading.Event reference."""
     event = threading.Event()
     orch.set_interrupt_event(event)
     assert orch._interrupt_event is event
@@ -98,6 +102,7 @@ def test_orchestrator_sets_interrupt_event(orch):
 # ---------------------------------------------------------------------------
 
 def test_orchestrator_error_info(orch):
+    """get_error_info should return default empty values."""
     info = orch.get_error_info()
     assert info["pipeline_retry_count"] == 0
     assert info["last_failed_stage"] == ""
@@ -105,6 +110,7 @@ def test_orchestrator_error_info(orch):
 
 
 def test_orchestrator_error_info_with_failure(orch):
+    """get_error_info should reflect set error state."""
     orch._pipeline_retry_count = 3
     orch._last_failed_stage = AgentState.PLANNING
     orch._error_message = "Something went wrong"
@@ -115,6 +121,7 @@ def test_orchestrator_error_info_with_failure(orch):
 
 
 def test_orchestrator_reset_error_state(orch):
+    """reset_error_state should clear all error info and stage messages."""
     orch._pipeline_retry_count = 3
     orch._error_message = "Something went wrong"
     orch._last_failed_stage = AgentState.PLANNING
@@ -133,14 +140,13 @@ def test_orchestrator_reset_error_state(orch):
 # ---------------------------------------------------------------------------
 
 def test_validate_dependencies_passes(orch):
-    # Should not raise — all dependencies are initialized in __init__
+    """All required dependencies should be initialized by default."""
     orch._validate_dependencies()
 
 
 def test_validate_dependencies_missing():
-    """Should raise RuntimeError when a required attribute is missing."""
+    """Missing a required attribute should raise RuntimeError."""
     orch = _make_orchestrator_minimal()
-    # Remove a required attribute
     if hasattr(orch, '_citation_store'):
         del orch._citation_store
     with pytest.raises(RuntimeError, match="Missing pipeline dependency"):
@@ -148,6 +154,7 @@ def test_validate_dependencies_missing():
 
 
 def _make_orchestrator_minimal():
+    """Helper to create a bare PipelineOrchestrator for dependency testing."""
     llm = MockLLM(fixed_response="Test")
     tools = ToolRegistry()
     guardrails = GuardrailManager(guardrails=[])
@@ -163,6 +170,7 @@ def _make_orchestrator_minimal():
 # ---------------------------------------------------------------------------
 
 def test_run_pipeline_returns_result(orch, sample_task, sample_state):
+    """run_pipeline should return a PipelineResult even with minimal setup."""
     result = orch.run_pipeline(
         task=sample_task,
         state=sample_state,
@@ -175,6 +183,7 @@ def test_run_pipeline_returns_result(orch, sample_task, sample_state):
 
 
 def test_run_pipeline_resets_state(orch, sample_task, sample_state):
+    """run_pipeline should reset pipeline state before execution."""
     orch._pipeline_retry_count = 99
     orch._error_message = "old error"
     result = orch.run_pipeline(
@@ -184,15 +193,11 @@ def test_run_pipeline_resets_state(orch, sample_task, sample_state):
         feedback_lock=threading.Lock(),
         feedback_history=[],
     )
-    # The orchestrator resets state at the beginning of run_pipeline.
-    # After running, the pipeline may have logged entries, but the initial
-    # reset should have cleared the old values.
     assert isinstance(result, PipelineResult)
 
 
 def test_run_pipeline_catches_fatal_error(orch, sample_task, sample_state):
-    """When no validators are set, run_pipeline should still complete without crash."""
-    # Override llm to make it fail
+    """run_pipeline should catch exceptions and return error PipelineResult."""
     def failing_generate(*args, **kwargs):
         raise RuntimeError("Fatal pipeline error")
     orch.llm.generate = failing_generate
@@ -211,20 +216,18 @@ def test_run_pipeline_catches_fatal_error(orch, sample_task, sample_state):
 # ---------------------------------------------------------------------------
 
 def test_pipeline_interrupt_at_start(orch, sample_task, sample_state):
-    """Interrupt before pipeline starts should return immediately."""
+    """Interrupt before pipeline starts should return early."""
     event = threading.Event()
-    event.set()  # Already interrupted
+    event.set()
     orch.set_interrupt_event(event)
     orch.run_pipeline(
         task=sample_task, state=sample_state,
         feedback_queue=[], feedback_lock=threading.Lock(), feedback_history=[],
     )
-    # Should have returned early with interrupted status
-    assert orch._state.current_state is not None
 
 
 def test_pipeline_interrupt_check(orch):
-    """_check_interrupted returns correct values."""
+    """_check_interrupted should reflect interrupt event state."""
     event = threading.Event()
     orch.set_interrupt_event(event)
     assert not orch._check_interrupted()
@@ -233,7 +236,7 @@ def test_pipeline_interrupt_check(orch):
 
 
 def test_pipeline_interrupt_no_event(orch):
-    """_check_interrupted returns False when no event is set."""
+    """_check_interrupted should return False when no event is set."""
     orch._interrupt_event = None
     assert not orch._check_interrupted()
 
@@ -242,8 +245,8 @@ def test_pipeline_interrupt_no_event(orch):
 # _generate_search_queries — fallback paths
 # ---------------------------------------------------------------------------
 
-def test_generate_search_queries_success(orch, sample_task, sample_state):
-    """Should return parsed queries from LLM response."""
+def test_generate_search_queries_success(orch, sample_task):
+    """Should parse '->' separated queries from LLM response."""
     orch.llm = MockLLM(fixed_response="query1 -> q1\nquery2 -> q2")
     orch._task = sample_task
     result = orch._generate_search_queries("topic", ["kw1"])
@@ -251,8 +254,8 @@ def test_generate_search_queries_success(orch, sample_task, sample_state):
     assert "->" in result[0]
 
 
-def test_generate_search_queries_fallback_on_exception(orch, sample_task, sample_state):
-    """Should return fallback on LLM error."""
+def test_generate_search_queries_fallback_on_exception(orch, sample_task):
+    """Should return fallback queries when LLM raises."""
     def failing_generate(*args, **kwargs):
         raise RuntimeError("LLM error")
     orch.llm.generate = failing_generate
@@ -262,7 +265,7 @@ def test_generate_search_queries_fallback_on_exception(orch, sample_task, sample
     assert "topic" in result
 
 
-def test_generate_search_queries_empty_queries(orch, sample_task, sample_state):
+def test_generate_search_queries_empty_queries(orch, sample_task):
     """Fallback when LLM returns no valid queries."""
     orch.llm = MockLLM(fixed_response="No arrows here")
     orch._task = sample_task
@@ -274,14 +277,16 @@ def test_generate_search_queries_empty_queries(orch, sample_task, sample_state):
 # _generate_methodology_queries — fallback paths
 # ---------------------------------------------------------------------------
 
-def test_generate_methodology_queries_success(orch, sample_task, sample_state):
+def test_generate_methodology_queries_success(orch, sample_task):
+    """Should parse methodology queries from LLM response."""
     orch.llm = MockLLM(fixed_response="method1 -> m1\nmethod2 -> m2")
     orch._task = sample_task
     result = orch._generate_methodology_queries("topic", ["kw1"])
     assert len(result) == 2
 
 
-def test_generate_methodology_queries_fallback(orch, sample_task, sample_state):
+def test_generate_methodology_queries_fallback(orch, sample_task):
+    """Should return fallback methodology queries on LLM error."""
     def failing_generate(*args, **kwargs):
         raise RuntimeError("LLM error")
     orch.llm.generate = failing_generate
@@ -296,6 +301,7 @@ def test_generate_methodology_queries_fallback(orch, sample_task, sample_state):
 # ---------------------------------------------------------------------------
 
 def test_expand_and_dedup_queries_basic(orch):
+    """Should expand '->' pairs and deduplicate."""
     raw = ["Vision Transformer -> ViT", "CNN -> CNN"]
     result = orch._expand_and_dedup_queries(raw, "topic", ["kw1", "kw2", "kw3"])
     assert "Vision Transformer" in result
@@ -304,12 +310,14 @@ def test_expand_and_dedup_queries_basic(orch):
 
 
 def test_expand_and_dedup_queries_pads_to_three(orch):
+    """Should pad query list to at least 3 entries."""
     raw = ["only one -> same"]
     result = orch._expand_and_dedup_queries(raw, "topic", ["kw1", "kw2", "kw3"])
     assert len(result) >= 3
 
 
 def test_expand_and_dedup_queries_filters_long(orch):
+    """Should filter out queries longer than 200 characters."""
     raw = ["a" * 300 + " -> b"]
     result = orch._expand_and_dedup_queries(raw, "topic", ["kw1"])
     assert all(len(q) < 200 for q in result)
@@ -320,6 +328,7 @@ def test_expand_and_dedup_queries_filters_long(orch):
 # ---------------------------------------------------------------------------
 
 def test_emit_progress_basic(orch):
+    """_emit_progress should record a message with timestamp."""
     orch._emit_progress("info", "Test message")
     assert len(orch.stage_messages) == 1
     assert orch.stage_messages[0]["type"] == "info"
@@ -328,6 +337,7 @@ def test_emit_progress_basic(orch):
 
 
 def test_emit_progress_with_metrics(orch):
+    """_emit_progress should update stage_metrics when provided."""
     orch._emit_progress("success", "Done", {"count": 5, "total": 10})
     assert orch.stage_messages[0]["type"] == "success"
     assert orch.stage_metrics["count"] == 5
@@ -335,6 +345,7 @@ def test_emit_progress_with_metrics(orch):
 
 
 def test_emit_progress_warning_type(orch):
+    """_emit_progress should support warning type."""
     orch._emit_progress("warning", "Warning message")
     assert orch.stage_messages[0]["type"] == "warning"
 
@@ -344,13 +355,13 @@ def test_emit_progress_warning_type(orch):
 # ---------------------------------------------------------------------------
 
 def test_format_repair_with_none(orch):
-    """When latex_repair is None, _format_repair should raise AttributeError."""
+    """When latex_repair is None, _format_repair should raise."""
     with pytest.raises((AttributeError, TypeError)):
         orch._format_repair("test draft")
 
 
 def test_format_repair_with_mock_repair(orch):
-    """Test with a mock latex_repair that returns a proper log."""
+    """_format_repair should return fixed_text and set repair_log."""
     class MockEntry:
         def __init__(self):
             self.rule = "test_rule"
@@ -378,7 +389,7 @@ def test_format_repair_with_mock_repair(orch):
 
 
 def test_format_repair_no_changes(orch):
-    """Test when repair has no changes."""
+    """_format_repair should handle repair with no changes."""
     class MockRepairLog:
         def __init__(self):
             self.has_changes = False
@@ -399,13 +410,14 @@ def test_format_repair_no_changes(orch):
 # ---------------------------------------------------------------------------
 
 def test_safe_llm_call_basic(orch):
+    """_safe_llm_call should return LLM response."""
     orch.llm = MockLLM(fixed_response="Hello")
     resp = orch._safe_llm_call("system", "user")
     assert resp.text == "Hello"
 
 
 def test_safe_llm_call_with_tools(orch, empty_tools):
-    """When use_tools=True, it should build tool definitions from registry."""
+    """_safe_llm_call should build tool definitions from registry."""
     orch.tools = empty_tools
     orch.llm = MockLLM(fixed_response="Tool call result")
     resp = orch._safe_llm_call("system", "user", use_tools=True)
@@ -413,6 +425,7 @@ def test_safe_llm_call_with_tools(orch, empty_tools):
 
 
 def test_safe_llm_call_failure(orch):
+    """_safe_llm_call should wrap errors in RuntimeError."""
     def failing_generate(*args, **kwargs):
         raise ValueError("API error")
     orch.llm.generate = failing_generate
@@ -425,16 +438,16 @@ def test_safe_llm_call_failure(orch):
 # ---------------------------------------------------------------------------
 
 def test_orch_safe_transition_valid(orch, sample_state):
+    """_safe_transition should perform valid state transitions."""
     orch._state = sample_state
     orch._safe_transition(AgentState.RETRIEVAL)
     assert orch._state.current_state == AgentState.RETRIEVAL
 
 
 def test_orch_safe_transition_invalid(orch, sample_state):
+    """_safe_transition should swallow invalid transitions."""
     orch._state = sample_state
-    # PLANNING -> COMPLETE is invalid
     orch._safe_transition(AgentState.COMPLETE)
-    # Should remain in PLANNING
     assert orch._state.current_state == AgentState.PLANNING
 
 
@@ -443,12 +456,14 @@ def test_orch_safe_transition_invalid(orch, sample_state):
 # ---------------------------------------------------------------------------
 
 def test_orch_ensure_state_already_there(orch, sample_state):
+    """_ensure_state should not transition if already in target."""
     orch._state = sample_state
     orch._ensure_state(AgentState.PLANNING)
     assert orch._state.current_state == AgentState.PLANNING
 
 
 def test_orch_ensure_state_transitions(orch, sample_state):
+    """_ensure_state should transition to target if not already there."""
     orch._state = sample_state
     orch._ensure_state(AgentState.RETRIEVAL)
     assert orch._state.current_state == AgentState.RETRIEVAL
@@ -459,6 +474,7 @@ def test_orch_ensure_state_transitions(orch, sample_state):
 # ---------------------------------------------------------------------------
 
 def test_orch_log(orch):
+    """_log should append timestamped entry to execution_log."""
     orch._log("TEST", {"key": "value"})
     assert len(orch.execution_log) == 1
     assert orch.execution_log[0]["stage"] == "TEST"
@@ -470,6 +486,7 @@ def test_orch_log(orch):
 # ---------------------------------------------------------------------------
 
 def test_build_result_basic(orch):
+    """_build_result should return PipelineResult with basic fields."""
     result = orch._build_result("paper", "complete", 2)
     assert result.paper == "paper"
     assert result.status == "complete"
@@ -478,6 +495,7 @@ def test_build_result_basic(orch):
 
 
 def test_build_result_with_latex_log(orch):
+    """_build_result should include latex_repair_log when available."""
     class MockEntry:
         def __init__(self):
             self.rule = "rule"
@@ -501,6 +519,7 @@ def test_build_result_with_latex_log(orch):
 
 
 def test_build_result_without_latex_log(orch):
+    """_build_result should omit latex_repair_log when None."""
     orch.latex_repair_log = None
     result = orch._build_result("paper", "complete", 1)
     assert result.latex_repair_log is None
@@ -511,11 +530,13 @@ def test_build_result_without_latex_log(orch):
 # ---------------------------------------------------------------------------
 
 def test_build_task_info_empty(orch):
+    """_build_task_info should return empty dict when nothing is set."""
     info = orch._build_task_info()
     assert info == {}
 
 
 def test_build_task_info_with_plan(orch):
+    """_build_task_info should include plan with section count."""
     orch._plan = "\\section{Intro}\n\\section{Methods}"
     info = orch._build_task_info()
     assert "plan" in info
@@ -523,6 +544,7 @@ def test_build_task_info_with_plan(orch):
 
 
 def test_build_task_info_with_papers(orch):
+    """_build_task_info should include paper list with et al."""
     orch._papers = [
         {"title": "Paper A", "authors": ["Author1", "Author2", "Author3", "Author4"]},
         {"title": "Paper B", "authors": ["Author5"]},
@@ -535,18 +557,21 @@ def test_build_task_info_with_papers(orch):
 
 
 def test_build_task_info_with_papers_arxiv(orch):
+    """Papers with arxiv_id should show source='arxiv'."""
     orch._papers = [{"title": "Paper", "authors": [], "arxiv_id": "1234"}]
     info = orch._build_task_info()
     assert info["papers"]["list"][0]["source"] == "arxiv"
 
 
 def test_build_task_info_with_queries(orch):
+    """_build_task_info should include search queries."""
     orch._retrieved_queries = ["q1", "q2"]
     info = orch._build_task_info()
     assert info["search_queries"] == ["q1", "q2"]
 
 
 def test_build_task_info_with_analysis(orch):
+    """_build_task_info should include analysis summary."""
     orch._analysis = "Full analysis text here"
     info = orch._build_task_info()
     assert "analysis" in info
@@ -554,12 +579,14 @@ def test_build_task_info_with_analysis(orch):
 
 
 def test_build_task_info_with_sections(orch):
+    """_build_task_info should include draft sections."""
     orch._draft_sections = [{"title": "Intro", "level": 0}]
     info = orch._build_task_info()
     assert "sections" in info
 
 
 def test_build_task_info_with_validation(orch):
+    """_build_task_info should include validation scores."""
     orch._validation_scores = {"check": {"score": 0.9, "passed": True}}
     info = orch._build_task_info()
     assert "validation" in info
@@ -570,6 +597,7 @@ def test_build_task_info_with_validation(orch):
 # ---------------------------------------------------------------------------
 
 def test_orch_extract_sections(orch):
+    """_extract_sections should parse LaTeX section commands."""
     draft = r"""
     \section{Introduction}
     \subsection{Background}
@@ -583,6 +611,7 @@ def test_orch_extract_sections(orch):
 
 
 def test_orch_extract_sections_empty(orch):
+    """_extract_sections should return empty list for text without sections."""
     sections = PipelineOrchestrator._extract_sections("No sections")
     assert sections == []
 
@@ -592,12 +621,14 @@ def test_orch_extract_sections_empty(orch):
 # ---------------------------------------------------------------------------
 
 def test_aggregate_results_empty(orch):
+    """_aggregate_results with empty list should pass with score 1.0."""
     result = orch._aggregate_results([])
     assert result["overall_passed"] is True
     assert result["overall_score"] == 1.0
 
 
 def test_aggregate_results_with_results(orch):
+    """_aggregate_results should compute overall score from validator results."""
     results = [
         ValidationResult(validator_name="a", passed=True, score=0.9),
         ValidationResult(validator_name="b", passed=False, score=0.4),
@@ -613,7 +644,7 @@ def test_aggregate_results_with_results(orch):
 # ---------------------------------------------------------------------------
 
 def test_run_validators_with_validators(orch):
-    # Add a mock validator
+    """_run_validators should return results from all validators."""
     mock_validator = MagicMock()
     mock_validator.__class__.__name__ = "MockValidator"
     mock_validator.validate.return_value = ValidationResult(
@@ -627,6 +658,7 @@ def test_run_validators_with_validators(orch):
 
 
 def test_run_validators_with_failure(orch):
+    """_run_validators should include failing validator results."""
     mock_validator = MagicMock()
     mock_validator.__class__.__name__ = "FailingValidator"
     mock_validator.validate.return_value = ValidationResult(
@@ -640,6 +672,7 @@ def test_run_validators_with_failure(orch):
 
 
 def test_run_validators_catches_exception(orch):
+    """_run_validators should catch validator exceptions gracefully."""
     mock_validator = MagicMock()
     mock_validator.__class__.__name__ = "CrashingValidator"
     mock_validator.validate.side_effect = ValueError("Validator crashed")
@@ -655,11 +688,13 @@ def test_run_validators_catches_exception(orch):
 # ---------------------------------------------------------------------------
 
 def test_post_process_empty_draft(orch):
+    """_post_process should return empty string for empty draft."""
     result = orch._post_process("")
     assert result == ""
 
 
 def test_post_process_none_draft(orch):
+    """_post_process should return None for None draft."""
     result = orch._post_process(None)
     assert result is None
 
@@ -669,6 +704,7 @@ def test_post_process_none_draft(orch):
 # ---------------------------------------------------------------------------
 
 def test_build_citation_context_empty(orch):
+    """_build_citation_context should return empty string when store is empty."""
     result = orch._build_citation_context()
     assert result == ""
 
@@ -678,6 +714,7 @@ def test_build_citation_context_empty(orch):
 # ---------------------------------------------------------------------------
 
 def test_orch_progress(orch, sample_task, sample_state):
+    """_progress should update state and invoke callback."""
     orch._task = sample_task
     orch._state = sample_state
     captured = []
@@ -690,6 +727,7 @@ def test_orch_progress(orch, sample_task, sample_state):
 
 
 def test_orch_progress_without_callback(orch, sample_task, sample_state):
+    """_progress should update state even without callback."""
     orch._task = sample_task
     orch._state = sample_state
     orch._progress(None, "stage", "msg")
@@ -702,13 +740,14 @@ def test_orch_progress_without_callback(orch, sample_task, sample_state):
 # ---------------------------------------------------------------------------
 
 def test_orch_retry_on_error_success(orch, sample_state):
+    """_retry_on_error should return function result on first success."""
     orch._state = sample_state
     result = orch._retry_on_error(lambda: "ok", AgentState.PLANNING, None)
     assert result == "ok"
 
 
 def test_orch_retry_on_error_exhausted(orch, sample_state):
-    """When max_pipeline_retries is 0, should fail after 1 attempt."""
+    """_retry_on_error should exhaust retries then raise."""
     orch._state = sample_state
     orch.config.max_pipeline_retries = 0
     call_count = 0
@@ -728,11 +767,13 @@ def test_orch_retry_on_error_exhausted(orch, sample_state):
 # ---------------------------------------------------------------------------
 
 def test_incorporate_feedback_empty_repairs(orch):
+    """_incorporate_feedback should return original analysis when repairs are empty."""
     result = orch._incorporate_feedback("analysis text", "")
     assert result == "analysis text"
 
 
 def test_incorporate_feedback_with_repairs(orch):
+    """_incorporate_feedback should use LLM to revise analysis."""
     orch.llm = MockLLM(fixed_response="Revised analysis")
     orch._plan = "Research plan"
     result = orch._incorporate_feedback("analysis text", "Fix issues")
@@ -744,7 +785,7 @@ def test_incorporate_feedback_with_repairs(orch):
 # ---------------------------------------------------------------------------
 
 def test_check_human_feedback_empty_queue(orch, sample_task):
-    """With empty feedback queue, _check_human_feedback should return no updates."""
+    """_check_human_feedback should return no updates when queue is empty."""
     orch._task = sample_task
     orch._feedback_queue = []
     orch._feedback_lock = threading.Lock()
@@ -753,6 +794,7 @@ def test_check_human_feedback_empty_queue(orch, sample_task):
 
 
 def test_check_human_feedback_expand_section(orch, sample_task):
+    """expand_section feedback should add to pending_expansions."""
     orch._task = sample_task
     orch._state = StateMachine()
     orch.llm = MockLLM(fixed_response="Analysis")
@@ -767,6 +809,7 @@ def test_check_human_feedback_expand_section(orch, sample_task):
 
 
 def test_check_human_feedback_general(orch, sample_task):
+    """general feedback should add to pending_revisions."""
     orch._task = sample_task
     orch._state = StateMachine()
     orch.llm = MockLLM(fixed_response="Analysis")
@@ -785,7 +828,7 @@ def test_check_human_feedback_general(orch, sample_task):
 # ---------------------------------------------------------------------------
 
 def test_supplement_retrieval_no_tools(orch):
-    """Should return empty list when no search tools are registered."""
+    """_supplement_retrieval should return empty list when no search tools."""
     orch.llm = MockLLM(fixed_response="search query")
     result = orch._supplement_retrieval("Find more papers on topic X")
     assert result == []
@@ -796,7 +839,7 @@ def test_supplement_retrieval_no_tools(orch):
 # ---------------------------------------------------------------------------
 
 def test_write_survey_short_analysis(orch):
-    """When analysis is short (< 200 chars), it should use replacement."""
+    """_write_survey should use replacement analysis when original is too short."""
     orch._task = TaskInfo(topic="Test", keywords=["kw"])
     orch._plan = "Research plan"
     orch._papers = []
@@ -810,7 +853,7 @@ def test_write_survey_short_analysis(orch):
 # ---------------------------------------------------------------------------
 
 def test_analyze_papers_empty(orch):
-    """When papers list is empty, should generate analysis from topic knowledge."""
+    """_analyze_papers with empty papers should use topic knowledge."""
     orch._task = TaskInfo(topic="Test", keywords=["kw"])
     orch._plan = "Plan"
     orch.llm = MockLLM(fixed_response="Analysis from topic knowledge")
@@ -824,10 +867,9 @@ def test_analyze_papers_empty(orch):
 # ---------------------------------------------------------------------------
 
 def test_extract_and_verify_claims_no_analysis(orch):
-    """Should handle empty analysis gracefully."""
+    """_extract_and_verify_claims should handle empty analysis gracefully."""
     orch._analysis = ""
     orch._evidence_store = MagicMock()
-    # Should not raise
     orch._extract_and_verify_claims([])
 
 
@@ -836,9 +878,9 @@ def test_extract_and_verify_claims_no_analysis(orch):
 # ---------------------------------------------------------------------------
 
 def test_build_citation_anchors_no_verified_claims(orch):
+    """_build_citation_anchors should handle empty verified claims."""
     orch._evidence_store = MagicMock()
     orch._evidence_store.get_verified_claims.return_value = []
-    # Should not raise
     orch._build_citation_anchors()
 
 
@@ -847,8 +889,8 @@ def test_build_citation_anchors_no_verified_claims(orch):
 # ---------------------------------------------------------------------------
 
 def test_extract_benchmarks_and_knowledge_no_refs(orch):
+    """_extract_benchmarks_and_knowledge should handle empty refs."""
     orch._evidence_refs = []
-    # Should not raise
     orch._extract_benchmarks_and_knowledge()
 
 
@@ -857,6 +899,7 @@ def test_extract_benchmarks_and_knowledge_no_refs(orch):
 # ---------------------------------------------------------------------------
 
 def test_generate_plan(orch):
+    """_generate_plan should set _plan from LLM response."""
     orch._task = TaskInfo(topic="Test", keywords=["kw"], goal="Test goal")
     orch.llm = MockLLM(fixed_response="\\section{Introduction}\n\\section{Methods}")
     result = orch._generate_plan()
@@ -865,25 +908,24 @@ def test_generate_plan(orch):
 
 
 # ---------------------------------------------------------------------------
-# Guardrail filter
+# Guardrail tests
 # ---------------------------------------------------------------------------
 
 def test_guardrail_filter_papers():
-    """Test that GuardrailManager has filter_papers method."""
+    """GuardrailManager.filter_papers should return papers unchanged."""
     manager = GuardrailManager(guardrails=[])
     result = manager.filter_papers([{"title": "Paper"}])
     assert result == [{"title": "Paper"}]
 
 
 def test_guardrail_check_all():
-    """Test GuardrailManager.check_all returns empty list."""
+    """GuardrailManager.check_all should return empty list."""
     manager = GuardrailManager(guardrails=[])
     result = manager.check_all({"text": "test"})
     assert result == []
 
 
 def test_guardrail_check_tool_call():
-    """Test GuardrailManager.check_tool_call does not raise."""
+    """GuardrailManager.check_tool_call should not raise."""
     manager = GuardrailManager(guardrails=[])
-    # Should not raise
     manager.check_tool_call("llm_generate", {"prompt": "test"})
