@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { getInitStatus } from "../api/client";
+import ConfirmDialog from "./ConfirmDialog";
 
 const NAV_ITEMS = [
   { path: "/", label: "Dashboard", icon: "📊" },
@@ -13,8 +14,8 @@ const NAV_ITEMS = [
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
-  const [needsInit, setNeedsInit] = useState(false);
-  const [initLoading, setInitLoading] = useState(true);
+  const navigate = useNavigate();
+  const [showInitModal, setShowInitModal] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -22,22 +23,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       try {
         const status = await getInitStatus();
         if (!cancelled) {
-          setNeedsInit(status.needs_initialization);
+          // 仅在非Credentials页面且需要初始化时弹出引导弹窗
+          if (status.needs_initialization && location.pathname !== "/credentials") {
+            setShowInitModal(true);
+          }
         }
       } catch {
         // Silently ignore — if the API is unavailable, don't block the UI
-      } finally {
-        if (!cancelled) {
-          setInitLoading(false);
-        }
       }
     };
     check();
     return () => { cancelled = true; };
-  }, []);
-
-  const isCredentialsPage = location.pathname === "/credentials";
-  const showBanner = needsInit && !initLoading && !isCredentialsPage;
+  }, [location.pathname]);
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", fontFamily: "var(--font-family)" }}>
@@ -56,45 +53,19 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         ))}
       </nav>
       <main style={{ flex: 1, padding: "var(--space-xl)", background: "var(--color-bg)" }}>
-        {showBanner && (
-          <div
-            style={{
-              padding: "0.75rem 1rem",
-              marginBottom: "var(--space-lg, 16px)",
-              background: "#fff3cd",
-              border: "1px solid #ffc107",
-              borderRadius: "var(--radius-md, 6px)",
-              color: "#856404",
-              fontSize: "var(--font-size-sm, 14px)",
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-            }}
-          >
-            <span style={{ fontSize: "18px" }}>🔑</span>
-            <span style={{ flex: 1 }}>
-              LLM API Key 未配置。请先前往{" "}
-              <Link
-                to="/credentials"
-                style={{ color: "#856404", fontWeight: 600, textDecoration: "underline" }}
-              >
-                凭据管理页面
-              </Link>{" "}
-              配置 API Key 后再开始使用。
-            </span>
-            <button
-              onClick={() => setNeedsInit(false)}
-              style={{
-                background: "none", border: "none", cursor: "pointer",
-                fontSize: "18px", color: "#856404", padding: "0 4px",
-                lineHeight: 1,
-              }}
-              aria-label="关闭提示"
-            >
-              &times;
-            </button>
-          </div>
-        )}
+        {/* 初始化引导弹窗：仅在非 Credentials 页面且 needs_initialization 时弹出 */}
+        <ConfirmDialog
+          open={showInitModal}
+          title="🔑 API Key 未配置"
+          message="系统检测到尚未配置 LLM_API_KEY。请先前往凭据管理页面设置有效的 API Key 后再开始使用 ScholarAgent 的全部功能。"
+          confirmLabel="前往 Credentials 页面"
+          cancelLabel="稍后再说"
+          onConfirm={() => {
+            setShowInitModal(false);
+            navigate("/credentials");
+          }}
+          onCancel={() => setShowInitModal(false)}
+        />
         {children}
       </main>
     </div>

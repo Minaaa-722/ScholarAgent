@@ -1,6 +1,12 @@
+import logging
 from fastapi import APIRouter, Depends
+from starlette.responses import JSONResponse
 from api.models import SurveyRequest, SurveyResponse, PaperItem, PaperListResponse, GraphNode, GraphLink, GraphResponse
 from agent.core.harness import Harness
+from agent.core.llm import OpenAILLM
+from api.routes.credentials import _resolve_credential
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/survey", tags=["survey"])
 
@@ -10,8 +16,85 @@ def get_harness() -> Harness:
     return _harness
 
 
-@router.post("", response_model=SurveyResponse)
+# ---------------------------------------------------------------------------
+# 新增：LLM 连通性测试函数
+# 复用 OpenAILLM 的初始化逻辑（base_url、model 统一管理），避免配置两份不一致
+# 使用极低 token 消耗的 ping 请求（max_tokens=1）
+# ---------------------------------------------------------------------------
+def _test_llm_connectivity(api_key: str) -> str | None:
+    """Test LLM connectivity by sending a minimal ping request.
+
+    Reuses the existing OpenAILLM configuration (base_url, model) to ensure
+    configuration consistency — avoids duplicating default values.
+
+    Returns:
+        None on success, or an error message string on failure.
+    """
+    try:
+        # 复用 OpenAILLM 的初始化逻辑，确保 base_url/model 与环境变量保持一致
+        llm = OpenAILLM(api_key=api_key)
+        # 极低 token 消耗的 ping 请求
+        llm.client.chat.completions.create(
+            model=llm.model,
+            messages=[{"role": "user", "content": "ping"}],
+            max_tokens=1,
+        )
+        return None
+    except Exception as e:
+        error_name = type(e).__name__
+        error_str = str(e)
+
+        # 鉴权失败 (401)
+        if hasattr(e, 'status_code') and e.status_code == 401:
+            return "LLM_API_KEY无效、过期或权限不足，请前往Credentials页面重新配置密钥"
+        auth_keywords = ("401", "Unauthorized", "Authentication", "auth")
+        error_lower = error_str.lower()
+        if any(kw.lower() in error_lower for kw in auth_keywords):
+            return "LLM_API_KEY无效、过期或权限不足，请前往Credentials页面重新配置密钥"
+
+        # 网络超时/连接失败
+        network_keywords = [
+            "timeout", "connection", "connect",
+            "nameresolution", "name or service",
+        ]
+        if any(kw in error_lower for kw in network_keywords):
+            return f"无法连接到LLM服务，请检查网络连接和API地址(LLM_BASE_URL)配置: {error_name}"
+
+        # 其他异常
+        return f"LLM连通性测试失败: {error_name}: {error_str}"
+
+
+# ---------------------------------------------------------------------------
+# 改造：create_survey 增加 LLM 密钥前置校验
+# 校验通过才允许创建流水线任务，校验失败直接拦截
+# ---------------------------------------------------------------------------
+@router.post("")
 async def create_survey(req: SurveyRequest, harness: Harness = Depends(get_harness)):
+    # 前置校验①：检查 LLM_API_KEY 是否已配置
+    api_key = _resolve_credential("LLM_API_KEY")
+    if not api_key:
+        logger.warning("任务启动拦截: LLM_API_KEY 未配置")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "error",
+                "message": "未配置LLM_API_KEY，请前往Credentials页面填写有效的API密钥后再启动任务",
+            },
+        )
+
+    # 前置校验②：连通性测试，验证密钥是否有效
+    error_msg = _test_llm_connectivity(api_key)
+    if error_msg is not None:
+        logger.warning("任务启动拦截: LLM 连通性测试失败 — %s", error_msg)
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "error",
+                "message": error_msg,
+            },
+        )
+
+    # 前置校验全部通过 → 正常创建并启动流水线任务
     harness.run_async(
         topic=req.topic, keywords=req.keywords, goal=req.goal, max_papers=req.max_papers,
         year_start=req.year_start or None, year_end=req.year_end or None,

@@ -4,6 +4,7 @@ import { createSurvey, getAutoLoadPreferences } from "../api/client";
 import Card from "../components/Card";
 import Button from "../components/Button";
 import LoadingSkeleton from "../components/LoadingSkeleton";
+import ConfirmDialog from "../components/ConfirmDialog";
 
 export default function ResearchCreation() {
   const navigate = useNavigate();
@@ -15,6 +16,9 @@ export default function ResearchCreation() {
   const [yearEnd, setYearEnd] = useState(2026);
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // 新增：API Key 校验错误弹窗状态
+  const [showKeyError, setShowKeyError] = useState(false);
+  const [keyErrorMessage, setKeyErrorMessage] = useState("");
 
   // Auto-load preferences
   useEffect(() => {
@@ -39,7 +43,15 @@ export default function ResearchCreation() {
 
   const handleStart = async () => {
     if (!validate()) return;
-    await createSurvey({ topic, keywords, goal, max_papers: maxPapers });
+    // 调用创建任务 API
+    const response = await createSurvey({ topic, keywords, goal, max_papers: maxPapers });
+    // 检查后端返回的校验错误
+    if (response.status === "error") {
+      setKeyErrorMessage(response.message || "API Key 配置异常，请检查凭据设置");
+      setShowKeyError(true);
+      return; // 不跳转到 /execution
+    }
+    // 校验通过 → 跳转到执行页面
     navigate("/execution");
   };
 
@@ -120,6 +132,20 @@ export default function ResearchCreation() {
           Start Agent
         </Button>
       </div>
+
+      {/* 新增：API Key 校验失败弹窗 */}
+      <ConfirmDialog
+        open={showKeyError}
+        title="API Key 校验失败"
+        message={keyErrorMessage}
+        confirmLabel="前往 Credentials 页面"
+        cancelLabel="取消"
+        onConfirm={() => {
+          setShowKeyError(false);
+          navigate("/credentials");
+        }}
+        onCancel={() => setShowKeyError(false)}
+      />
     </div>
   );
 }

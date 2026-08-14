@@ -9,19 +9,20 @@ router = APIRouter()
 async def stream_progress(websocket: WebSocket, task_id: str):
     from api.main import _harness
 
-    # If no task has ever been started, close immediately
+    # 必须先 accept() 再 close()，否则客户端会收到 403/upgrade denied
+    await websocket.accept()
+
     if not _harness.task_started_at:
+        await websocket.send_json({"status": "no_task", "message": "No task started"})
         await websocket.close(code=1000, reason="No task started")
         return
 
-    await websocket.accept()
     try:
         while True:
             info = _harness.get_task_info()
             info["task_id"] = task_id
             await websocket.send_text(json.dumps(info))
             if not _harness._pipeline_running:
-                # Pipeline finished (complete, error, or interrupted) — stop streaming
                 break
             await asyncio.sleep(0.5)
     except WebSocketDisconnect:

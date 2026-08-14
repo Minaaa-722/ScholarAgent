@@ -24,12 +24,16 @@ def client(test_harness):
 
 @pytest.mark.asyncio
 async def test_create_survey(client):
-    response = await client.post("/api/survey", json={
-        "topic": "Transformer Models",
-        "keywords": "attention, BERT, GPT",
-        "goal": "Survey transformer architectures",
-        "max_papers": 20,
-    })
+    from unittest.mock import patch
+    # Mock credential resolution and connectivity test to bypass validation
+    with patch("api.routes.survey._resolve_credential", return_value="sk-test-key"):
+        with patch("api.routes.survey._test_llm_connectivity", return_value=None):
+            response = await client.post("/api/survey", json={
+                "topic": "Transformer Models",
+                "keywords": "attention, BERT, GPT",
+                "goal": "Survey transformer architectures",
+                "max_papers": 20,
+            })
     assert response.status_code == 200
     data = response.json()
     assert data["topic"] == "Transformer Models"
