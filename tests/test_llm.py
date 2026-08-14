@@ -27,3 +27,23 @@ def test_mock_llm_records_conversation():
 def test_llm_base_cannot_be_instantiated():
     with pytest.raises(TypeError):
         LLMBase()  # Abstract class
+
+
+def test_openai_llm_set_api_key_updates_client():
+    """OpenAILLM.set_api_key() updates api_key and recreates the client."""
+    from unittest.mock import MagicMock, patch
+    with patch("openai.OpenAI") as mock_openai:
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+        from agent.core.llm import OpenAILLM
+        llm = OpenAILLM(api_key="sk-old-key")
+        assert llm.api_key == "sk-old-key"
+
+        # set_api_key should update the key and recreate the client
+        llm.set_api_key("sk-new-key")
+        assert llm.api_key == "sk-new-key"
+        mock_openai.assert_called_with(
+            api_key="sk-new-key",
+            base_url=llm.base_url,
+            timeout=llm.timeout,
+        )

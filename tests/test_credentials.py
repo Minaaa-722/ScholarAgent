@@ -9,6 +9,7 @@ All tests mock keyring to avoid depending on real system credential manager.
 """
 import os
 from unittest.mock import patch
+from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
 from api.main import app
 
@@ -157,6 +158,29 @@ class TestCredentialsAPI:
         assert data["status"] == "updated"
         # Empty value is stored as-is
         mock_set.assert_called_with("ScholarAgent", "LLM_API_KEY", "")
+
+    @patch("keyring.set_password")
+    @patch("keyring.get_password", return_value=None)
+    def test_put_credential_updates_llm_instance(self, mock_get_keyring, mock_set_keyring):
+        """PUT LLM_API_KEY should update the runtime LLM instance's api_key."""
+        for key in CREDENTIAL_KEYS:
+            os.environ.pop(key, None)
+
+        # Replace app.state.llm with a mock to verify set_api_key is called
+        mock_llm = MagicMock()
+        mock_llm.api_key = "sk-old"
+        app.state.llm = mock_llm
+
+        response = client.put("/api/credentials", json={
+            "key": "LLM_API_KEY",
+            "value": "sk-updated-key",
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "updated"
+
+        # Verify the endpoint called set_api_key on the LLM instance
+        mock_llm.set_api_key.assert_called_once_with("sk-updated-key")
 
     # ------------------------------------------------------------------
     # DELETE /api/credentials/{key} — clear credential
