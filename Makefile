@@ -1,4 +1,4 @@
-.PHONY: test test-unit test-all test-ci install run-api coverage
+.PHONY: test test-unit test-all test-ci install run-api coverage docker-build docker-run docker-push
 
 # Run all tests (default)
 test: test-all
@@ -25,3 +25,24 @@ install:
 
 run-api:
 	uvicorn api.main:app --reload --port 8000
+
+# Docker build — multi-stage, tags as scholaragent:latest
+docker-build:
+	docker build -t scholaragent:latest .
+
+# Docker build (no-cache)
+docker-build-clean:
+	docker build --no-cache -t scholaragent:latest .
+
+# Docker run — maps port 8000, loads .env for API keys
+docker-run:
+	docker run -p 8000:8000 --env-file .env scholaragent:latest
+
+# Docker run (detached)
+docker-run-d:
+	docker run -d -p 8000:8000 --name scholaragent --env-file .env scholaragent:latest
+
+# Docker push (tag as registry image first)
+docker-push:
+	@echo "Usage: docker tag scholaragent:latest your-registry/scholaragent:latest"
+	@echo "       docker push your-registry/scholaragent:latest"

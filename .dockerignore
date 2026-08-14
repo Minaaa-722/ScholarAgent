@@ -1,0 +1,44 @@
+# ScholarAgent — .dockerignore
+# Exclude unnecessary files from Docker build context
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Environment
+.env
+.env.local
+
+# Memory (runtime data)
+memory/session/
+memory/persistent/*.db
+
+# Node
+node_modules/
+web/node_modules/
+
+# IDE
+.idea/
+.vscode/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation (not needed in runtime image)
+docs/
+
+# Test output
+htmlcov/
+.pytest_cache/
+*.swp
+
+# Claude worktrees (CI/development only)
+.claude/
+
+# Output
+output/
