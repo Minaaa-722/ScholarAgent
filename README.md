@@ -137,16 +137,17 @@ ScholarAgent/
 │       └── history.py              # 历史任务 API
 ├── web/                            # Web 前端（React + TypeScript + Vite）
 │   ├── src/
-│   │   ├── App.tsx                 # 6 路由入口
+│   │   ├── App.tsx                 # 7 路由入口
 │   │   ├── api/client.ts           # API 客户端
 │   │   ├── hooks/useWebSocket.ts   # WebSocket 实时连接 Hook
-│   │   ├── pages/                  # 6 个页面
+│   │   ├── pages/                  # 7 个页面
 │   │   │   ├── Dashboard.tsx       # 仪表盘首页
 │   │   │   ├── ResearchCreation.tsx# 创建研究任务
 │   │   │   ├── AgentExecution.tsx  # 执行过程实时监控
 │   │   │   ├── KnowledgeExplorer.tsx# 论文关系图谱
 │   │   │   ├── FinalReview.tsx     # 最终审查与导出
-│   │   │   └── HistoryDetail.tsx   # 历史任务详情
+│   │   │   ├── HistoryDetail.tsx   # 历史任务详情
+│   │   │   └── Credentials.tsx     # 凭据管理（keyring 加密存储）
 │   │   └── components/             # 14 个 UI 组件
 │   │       ├── Layout.tsx          # 全局布局
 │   │       ├── StageTimeline.tsx   # 阶段时间线
@@ -312,7 +313,9 @@ ScholarAgent 采用 **Mock-LLM 驱动测试**，所有测试不依赖真实 LLM 
 
 ## 安全边界
 
-- API Key 通过 `.env` 文件加载（已加入 `.gitignore`）或操作系统凭据管理器存储
+- API Key 通过系统凭据管理器存储（Windows Credential Manager / macOS Keychain），加密保护
+- 运行时回退至 `.env` 文件加载（已加入 `.gitignore`），文档标注明文风险
+- Web UI 凭据管理页面（`/credentials`）提供隐藏输入、掩码预览、更新/清除功能
 - 操作安全守卫拦截 `rm -rf`、`DROP TABLE` 等危险命令
 - 速率限制防止 API 滥用（默认 30 次/分钟）
 - 来源过滤拒绝低质量来源和黑名单期刊

@@ -1,74 +1,135 @@
-"""Tests for the credentials API route.
+"""Tests for the credentials API route with keyring-backed storage.
 
-Covers:
-  - GET /api/credentials — credential status check
-  - PUT /api/credentials — update/set credential
-  - DELETE /api/credentials/{key} — clear credential
-  - Edge cases: unknown key, empty values
+Storage priority:
+  1. System keyring (primary) — encrypted, no plaintext file
+  2. os.environ (secondary) — runtime memory, includes .env contents
+  3. .env file (fallback) — lowest priority, documented plaintext risk
+
+All tests mock keyring to avoid depending on real system credential manager.
 """
 import os
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 from api.main import app
 
-
 client = TestClient(app)
+
+CREDENTIAL_KEYS = ["LLM_API_KEY", "SEMANTIC_SCHOLAR_API_KEY", "GOOGLE_SCHOLAR_COOKIE"]
 
 
 class TestCredentialsAPI:
-    """Test the /api/credentials endpoints."""
+    """Test the /api/credentials endpoints with keyring-backed storage."""
 
-    # --- GET ---
+    # ------------------------------------------------------------------
+    # GET /api/credentials — status & preview (never plaintext)
+    # ------------------------------------------------------------------
 
-    def test_get_credentials_status(self):
+    @patch("keyring.get_password", return_value=None)
+    def test_get_credentials_all_not_configured(self, mock_keyring):
+        """No key in keyring or environ → all shown as not configured."""
+        for key in CREDENTIAL_KEYS:
+            os.environ.pop(key, None)
+
         response = client.get("/api/credentials")
         assert response.status_code == 200
         data = response.json()
         assert "credentials" in data
-        creds = data["credentials"]
-        # Should have all expected keys
-        assert "LLM_API_KEY" in creds
-        assert "SEMANTIC_SCHOLAR_API_KEY" in creds
-        assert "GOOGLE_SCHOLAR_COOKIE" in creds
-        # Each key should have 'configured' and 'preview'
-        for key, val in creds.items():
-            assert "configured" in val
-            assert "preview" in val
-            # preview should never be plaintext
-            assert isinstance(val["preview"], str)
-            if val["configured"] and val["preview"]:
-                assert val["preview"].endswith("****")
 
-    def test_get_credentials_configured(self):
-        # Temporarily set a key
-        os.environ["LLM_API_KEY"] = "sk-test123456"
+        for key in CREDENTIAL_KEYS:
+            info = data["credentials"][key]
+            assert info["configured"] is False
+            assert info["preview"] == ""
+
+    @patch("keyring.get_password", side_effect=lambda s, k: "sk-real-key-from-keyring" if k == "LLM_API_KEY" else None)
+    def test_get_credentials_from_keyring(self, mock_keyring):
+        """Key stored in keyring → shown as configured with masked preview."""
+        for key in CREDENTIAL_KEYS:
+            os.environ.pop(key, None)
+
+        response = client.get("/api/credentials")
+        data = response.json()
+        cred = data["credentials"]["LLM_API_KEY"]
+
+        assert cred["configured"] is True
+        assert cred["preview"] == "sk-r****"
+        # Verify we actually read from keyring
+        mock_keyring.assert_any_call("ScholarAgent", "LLM_API_KEY")
+
+    @patch("keyring.get_password", return_value=None)
+    def test_get_credentials_from_environ_fallback(self, mock_keyring):
+        """Key not in keyring but in os.environ → shown as configured (fallback)."""
+        os.environ["LLM_API_KEY"] = "sk-env-key-12345"
+
         try:
             response = client.get("/api/credentials")
             data = response.json()
-            assert data["credentials"]["LLM_API_KEY"]["configured"] is True
-            assert data["credentials"]["LLM_API_KEY"]["preview"] == "sk-t****"
+            cred = data["credentials"]["LLM_API_KEY"]
+
+            assert cred["configured"] is True
+            assert cred["preview"] == "sk-e****"
         finally:
             del os.environ["LLM_API_KEY"]
 
-    def test_get_credentials_not_configured(self):
-        # Ensure key is not set
-        os.environ.pop("LLM_API_KEY", None)
-        response = client.get("/api/credentials")
-        data = response.json()
-        assert data["credentials"]["LLM_API_KEY"]["configured"] is False
+    @patch("keyring.get_password", return_value=None)
+    def test_get_credentials_preview_never_plaintext(self, mock_keyring):
+        """Preview never shows the full key — only first 4 chars + '****'."""
+        os.environ["LLM_API_KEY"] = "sk-this-is-a-very-long-secret-key-12345"
 
-    # --- PUT ---
+        try:
+            response = client.get("/api/credentials")
+            data = response.json()
+            preview = data["credentials"]["LLM_API_KEY"]["preview"]
 
-    def test_put_credential_valid(self):
+            # Should be masked
+            assert "sk-t" in preview  # first 4 chars
+            assert "****" in preview  # masked suffix
+            # Should NOT contain the full key
+            assert "very-long-secret" not in preview
+        finally:
+            del os.environ["LLM_API_KEY"]
+
+    @patch("keyring.get_password", return_value=None)
+    def test_get_credentials_short_key_preview(self, mock_keyring):
+        """Key shorter than 4 chars → preview shows as much as possible + '****'."""
+        os.environ["LLM_API_KEY"] = "ab"
+
+        try:
+            response = client.get("/api/credentials")
+            data = response.json()
+            preview = data["credentials"]["LLM_API_KEY"]["preview"]
+            assert preview == "ab****"
+        finally:
+            del os.environ["LLM_API_KEY"]
+
+    # ------------------------------------------------------------------
+    # PUT /api/credentials — update/set credential
+    # ------------------------------------------------------------------
+
+    @patch("keyring.set_password")
+    @patch("keyring.get_password", return_value=None)
+    def test_put_credential_writes_to_keyring(self, mock_get, mock_set):
+        """PUT writes the credential to keyring and sets os.environ."""
+        for key in CREDENTIAL_KEYS:
+            os.environ.pop(key, None)
+
         response = client.put("/api/credentials", json={
             "key": "LLM_API_KEY",
-            "value": "sk-test-new-key",
+            "value": "sk-new-key-98765",
         })
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "updated"
         assert data["key"] == "LLM_API_KEY"
 
-    def test_put_credential_unknown_key(self):
+        # Verify written to keyring
+        mock_set.assert_called_with("ScholarAgent", "LLM_API_KEY", "sk-new-key-98765")
+        # Verify set in os.environ
+        assert os.environ.get("LLM_API_KEY") == "sk-new-key-98765"
+
+    @patch("keyring.set_password")
+    @patch("keyring.get_password", return_value=None)
+    def test_put_credential_unknown_key(self, mock_get, mock_set):
+        """PUT with an unknown key returns an error."""
         response = client.put("/api/credentials", json={
             "key": "INVALID_KEY",
             "value": "some-value",
@@ -77,8 +138,16 @@ class TestCredentialsAPI:
         data = response.json()
         assert data["status"] == "error"
         assert "Unknown credential" in data["message"]
+        # Should NOT have called keyring for unknown key
+        mock_set.assert_not_called()
 
-    def test_put_credential_empty_value(self):
+    @patch("keyring.set_password")
+    @patch("keyring.get_password", return_value=None)
+    def test_put_credential_empty_value(self, mock_get, mock_set):
+        """PUT with empty value stores the empty string (allowed)."""
+        for key in CREDENTIAL_KEYS:
+            os.environ.pop(key, None)
+
         response = client.put("/api/credentials", json={
             "key": "LLM_API_KEY",
             "value": "",
@@ -86,28 +155,55 @@ class TestCredentialsAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "updated"
+        # Empty value is stored as-is
+        mock_set.assert_called_with("ScholarAgent", "LLM_API_KEY", "")
 
-    # --- DELETE ---
+    # ------------------------------------------------------------------
+    # DELETE /api/credentials/{key} — clear credential
+    # ------------------------------------------------------------------
 
-    def test_delete_credential_valid(self):
-        # First set a key, then delete it
-        client.put("/api/credentials", json={
-            "key": "SEMANTIC_SCHOLAR_API_KEY",
-            "value": "test-key",
-        })
-        response = client.delete("/api/credentials/SEMANTIC_SCHOLAR_API_KEY")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "cleared"
-        assert data["key"] == "SEMANTIC_SCHOLAR_API_KEY"
+    @patch("keyring.delete_password")
+    @patch("keyring.get_password", return_value="some-key")
+    def test_delete_credential_clears_keyring_and_environ(self, mock_get, mock_del):
+        """DELETE removes credential from keyring and os.environ."""
+        os.environ["LLM_API_KEY"] = "sk-to-delete"
 
-    def test_delete_credential_unknown_key(self):
+        try:
+            response = client.delete("/api/credentials/LLM_API_KEY")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "cleared"
+            assert data["key"] == "LLM_API_KEY"
+
+            # Verify removed from keyring
+            mock_del.assert_called_with("ScholarAgent", "LLM_API_KEY")
+            # Verify removed from os.environ
+            assert os.environ.get("LLM_API_KEY") is None
+        finally:
+            os.environ.pop("LLM_API_KEY", None)
+
+    @patch("keyring.delete_password")
+    @patch("keyring.get_password", return_value=None)
+    def test_delete_credential_unknown_key(self, mock_get, mock_del):
+        """DELETE with an unknown key returns an error."""
         response = client.delete("/api/credentials/INVALID_KEY")
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "error"
         assert "Unknown credential" in data["message"]
+        mock_del.assert_not_called()
 
-    def test_delete_credential_nonexistent(self):
+    @patch("keyring.delete_password")
+    @patch("keyring.get_password", return_value=None)
+    def test_delete_credential_nonexistent_is_idempotent(self, mock_get, mock_del):
+        """DELETE on a key that exists in CREDENTIAL_KEYS but not in storage succeeds."""
+        for key in CREDENTIAL_KEYS:
+            os.environ.pop(key, None)
+
         response = client.delete("/api/credentials/LLM_API_KEY")
         assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "cleared"
+        assert data["key"] == "LLM_API_KEY"
+        # delete_password may raise if key doesn't exist; handler should catch it
+        mock_del.assert_called_with("ScholarAgent", "LLM_API_KEY")

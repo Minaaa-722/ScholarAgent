@@ -6,6 +6,7 @@ import AgentExecution from "./pages/AgentExecution";
 import KnowledgeExplorer from "./pages/KnowledgeExplorer";
 import FinalReview from "./pages/FinalReview";
 import HistoryDetail from "./pages/HistoryDetail";
+import Credentials from "./pages/Credentials";
 import Layout from "./components/Layout";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/Toast";
@@ -23,6 +24,7 @@ function App() {
               <Route path="/explorer" element={<KnowledgeExplorer />} />
               <Route path="/review" element={<FinalReview />} />
               <Route path="/history/:id" element={<HistoryDetail />} />
+              <Route path="/credentials" element={<Credentials />} />
               <Route path="*" element={<Navigate to="/" />} />
             </Routes>
           </Layout>
