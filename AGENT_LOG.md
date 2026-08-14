@@ -30,9 +30,9 @@ SPEC 定义 → PLAN 规划 → subagent 实现业务代码 → 事后补充测�
 | 3 | 优化 Makefile，增加 test-all/test-unit/test-ci/coverage 多目标 | ✅ 完成 | `Makefile` |
 | 4 | 检查 CI 配置，确认 unit-test job 完整可用 | ✅ 完成 | `.github/workflows/ci.yml` |
 | 5 | 更新 AGENT_LOG.md 补充偏离记录 | ✅ 完成 | 本文件 |
-| 6 | 修正 PLAN.md 添加 TDD 验证步骤 | 📋 待执行 | `PLAN.md` |
-| 7 | 更新 REFLECTION.md 写作素材 | 📋 待执行 | `REFLECTION.md` |
-| 8 | 配置 CLAUDE.md 开启 TDD 强制规则 | 📋 待执行 | `CLAUDE.md` |
+| 6 | 修正 PLAN.md 添加 TDD 验证步骤 | ✅ 完成 | `PLAN.md` |
+| 7 | 更新 REFLECTION.md 写作素材 | ✅ 完成 | `REFLECTION.md` |
+| 8 | 配置 CLAUDE.md 开启 TDD 强制规则 | ✅ 完成 | `CLAUDE.md` |
 
 ### 后续规范
 
