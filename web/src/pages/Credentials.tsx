@@ -185,38 +185,6 @@ export default function Credentials() {
           );
         })
       )}
-
-      {/* Security note */}
-      <Card
-        title="🔒 安全说明"
-        style={{
-          marginTop: "var(--space-xl, 24px)",
-          background: "var(--color-bg-secondary, #f5f5f5)",
-        }}
-      >
-        <ul style={{ margin: 0, paddingLeft: "20px", lineHeight: 2 }}>
-          <li>
-            <strong>主要存储</strong>：凭据写入操作系统凭据管理器
-            （Windows Credential Manager / macOS Keychain），加密存储，其他用户不可读。
-          </li>
-          <li>
-            <strong>运行时缓存</strong>：写入后同时注入进程环境变量，供当前会话使用。
-          </li>
-          <li>
-            <strong>兜底方案</strong>：支持通过 <code>.env</code>
-            文件加载（项目根目录，参见 <code>.env.example</code>）。
-            <span style={{ color: "#e67e22" }}>
-              注意：.env 是明文文件，存在被其他进程读取的风险，建议仅用于开发环境。
-            </span>
-          </li>
-          <li>
-            <strong>查看状态</strong>：本页面仅显示凭据的"前 4 位字符 + ****"，绝不会回显完整凭据。
-          </li>
-          <li>
-            <strong>安全承诺</strong>：凭据不会硬编码进源码，不会被提交进 Git 历史。
-          </li>
-        </ul>
-      </Card>
     </div>
   );
 }
