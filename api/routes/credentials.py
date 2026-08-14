@@ -14,7 +14,7 @@ Security guarantees:
 import logging
 import os
 from pathlib import Path
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 import keyring
 import dotenv
@@ -153,7 +153,7 @@ async def get_init_status():
 
 
 @router.put("")
-async def update_credential(update: CredentialUpdate):
+async def update_credential(update: CredentialUpdate, request: Request):
     """Update a credential. Writes to keyring (encrypted) + os.environ."""
     if update.key not in CREDENTIAL_KEYS:
         return {"status": "error", "message": f"Unknown credential: {update.key}"}
@@ -164,6 +164,13 @@ async def update_credential(update: CredentialUpdate):
     _write_to_keyring(update.key, update.value)
     # Also set in os.environ for current process
     os.environ[update.key] = update.value
+
+    # Sync the runtime LLM instance so the new key takes effect immediately
+    if update.key == "LLM_API_KEY" and hasattr(request.app.state, "llm"):
+        llm = request.app.state.llm
+        if hasattr(llm, "set_api_key"):
+            logger.debug("Syncing new API key to runtime LLM instance")
+            llm.set_api_key(update.value)
 
     return {"status": "updated", "key": update.key}
 

@@ -101,6 +101,31 @@ class OpenAILLM(LLMBase):
             raise ImportError("openai package is required. Run: pip install openai>=1.0.0")
 
     # ------------------------------------------------------------------
+    # Public API — update key at runtime
+    # ------------------------------------------------------------------
+
+    def set_api_key(self, api_key: str) -> None:
+        """Update the API key and recreate the OpenAI client at runtime.
+
+        Called when the user updates the API key via the Credentials UI
+        so that the running LLM instance picks up the new key immediately
+        without needing a server restart.
+
+        Silently ignores empty values to avoid creating a client with
+        a blank API key.
+        """
+        if not api_key:
+            logger.warning("set_api_key called with empty value — skipping")
+            return
+        self.api_key = api_key
+        from openai import OpenAI
+        self.client = OpenAI(
+            api_key=self.api_key,
+            base_url=self.base_url,
+            timeout=self.timeout,
+        )
+
+    # ------------------------------------------------------------------
     # Public generate method
     # ------------------------------------------------------------------
     def generate(

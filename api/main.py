@@ -22,13 +22,18 @@ app.add_middleware(
 )
 
 # Lazy init: use OpenAILLM if API key is set, otherwise fall back to MockLLM
-_api_key = os.getenv("LLM_API_KEY", "")
+# Use _resolve_credential to check all sources (keyring > process env > .env)
+from api.routes.credentials import _resolve_credential
+_api_key = _resolve_credential("LLM_API_KEY") or ""
 if _api_key:
     _llm = OpenAILLM(api_key=_api_key)
 else:
     _llm = MockLLM(fixed_response="Mock fallback – no LLM_API_KEY set")
 
 _harness = Harness(config=HarnessConfig(), llm=_llm)
+
+# Store LLM reference in app.state so routes can update the API key at runtime
+app.state.llm = _llm
 
 app.include_router(survey.router)
 app.include_router(feedback.router)
