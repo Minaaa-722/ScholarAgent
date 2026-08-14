@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from agent.core.llm import OpenAILLM, MockLLM
 from agent.core.harness import Harness, HarnessConfig
 from api.routes import survey, feedback, progress, memory, credentials, history
-import os
+from api.routes.credentials import _resolve_credential
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -23,7 +23,6 @@ app.add_middleware(
 
 # Lazy init: use OpenAILLM if API key is set, otherwise fall back to MockLLM
 # Use _resolve_credential to check all sources (keyring > process env > .env)
-from api.routes.credentials import _resolve_credential
 _api_key = _resolve_credential("LLM_API_KEY") or ""
 if _api_key:
     _llm = OpenAILLM(api_key=_api_key)
