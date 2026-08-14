@@ -191,6 +191,8 @@ ScholarAgent/
 │   └── AGENT_LOG.md                # 关键决策与流程偏离记录
 ├── .github/workflows/ci.yml        # GitHub Actions CI 配置
 ├── Dockerfile                      # 多阶段构建（前端 + 后端）
+├── docker-compose.yml              # Docker Compose 一键部署
+├── .dockerignore                   # Docker 构建上下文排除规则
 ├── Makefile                        # 构建命令
 ├── .env.example                    # 环境变量模板
 ├── requirements.txt                # Python 依赖
@@ -322,6 +324,96 @@ ScholarAgent 采用 **Mock-LLM 驱动测试**，所有测试不依赖真实 LLM 
 - 速率限制防止 API 滥用（默认 30 次/分钟）
 - 来源过滤拒绝低质量来源和黑名单期刊
 - 事实绑定确保每个学术论断可追溯至具体文献
+
+---
+
+## 分发 & 部署
+
+ScholarAgent 提供 Docker 容器化分发方式，支持多阶段构建（前端编译 + 后端运行合一镜像）。
+
+### 前置要求
+
+- Docker 24+
+- `.env` 文件已配置（至少包含 `LLM_API_KEY`）
+
+### 构建镜像
+
+```bash
+# 标准构建（利用缓存）
+make docker-build
+
+# 等价于：
+docker build -t scholaragent:latest .
+
+# 无缓存构建（依赖变更时使用）
+make docker-build-clean
+```
+
+### 运行容器
+
+```bash
+# 前台运行
+make docker-run
+
+# 等价于：
+docker run -p 8000:8000 --env-file .env scholaragent:latest
+
+# 后台运行
+make docker-run-d
+docker run -d -p 8000:8000 --name scholaragent --env-file .env scholaragent:latest
+```
+
+启动后访问 `http://localhost:8000` 进入 Web UI，或 `http://localhost:8000/docs` 查看 API 文档。
+
+### 推送至镜像仓库
+
+```bash
+docker tag scholaragent:latest your-registry/scholaragent:latest
+docker push your-registry/scholaragent:latest
+```
+
+### 分发清单
+
+| 文件 | 说明 |
+|------|------|
+| `Dockerfile` | 多阶段构建（前端 Node 20 → 后端 Python 3.11-slim） |
+| `docker-compose.yml` | Docker Compose 一键部署配置（含持久化卷挂载、健康检查） |
+| `.dockerignore` | 排除 IDE 配置、缓存、`node_modules`、运行时数据等 |
+| `Makefile` | `make docker-build` / `make docker-run` 等快捷命令 |
+| `.env.example` | 环境变量模板（复制为 `.env` 后填入 Key） |
+
+---
+
+## 已知限制
+
+### 功能限制
+
+| 限制 | 说明 |
+|------|------|
+| **语言** | 仅支持中文文献综述生成，英文摘要自动翻译 |
+| **检索源** | 当前集成 arXiv 和 Semantic Scholar；Google Scholar 接口预留但未上线 |
+| **PDF 解析** | 仅对标记为「核心论文」的文献下载全文 PDF 并解析（节省 Token 和带宽） |
+| **综述长度** | 受 LLM 上下文窗口限制，单篇综述建议不超过 15 页 |
+| **反馈修正** | 自动修正最多 3 轮，超过后进入人工审查路径 |
+| **并发任务** | 单次仅执行一个综述任务，后续任务排队等待 |
+
+### 部署限制
+
+| 限制 | 说明 |
+|------|------|
+| **持久化** | 使用 SQLite，不支持水平扩展；多副本部署需替换为共享数据库 |
+| **无认证** | 当前版本不含用户认证与鉴权系统，API 端点默认开放 |
+| **无 HTTPS** | 容器默认 HTTP 服务，生产部署建议前置反向代理（Nginx / Caddy） |
+| **无任务队列** | 长耗时任务在进程内同步执行，重启后未完成任务丢失 |
+| **内存** | 长综述生成在密集 PDF 解析阶段可能消耗 500 MB+ 内存 |
+
+### Key 安全配置
+
+- **推荐**：通过系统凭据管理器存储（Windows Credential Manager / macOS Keychain）
+- **回退**：`.env` 文件加载（已加入 `.gitignore`，请勿提交至 Git）
+- **无前端环境**：访问 `http://localhost:8000/docs` → PUT `/api/credentials` 动态注入 Key
+- API Key 仅在运行时存在于进程内存和凭据存储中，绝不硬编码
+- 首次请求前自动校验 Key 有效性，无效 Key 返回 401 错误并提示重新配置
 
 ---
 
