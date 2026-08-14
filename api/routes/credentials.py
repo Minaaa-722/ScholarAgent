@@ -27,6 +27,18 @@ KEYRING_SERVICE = "ScholarAgent"
 
 CREDENTIAL_KEYS = ["LLM_API_KEY", "SEMANTIC_SCHOLAR_API_KEY", "GOOGLE_SCHOLAR_COOKIE"]
 
+# Cache the .env path once at module load time
+_DOTENV_PATH: Path | None = None
+
+
+def _get_dotenv_path() -> Path | None:
+    """Resolve and cache the project .env file path."""
+    global _DOTENV_PATH
+    if _DOTENV_PATH is None:
+        candidate = Path(__file__).resolve().parent.parent / ".env"
+        _DOTENV_PATH = candidate if candidate.exists() else None
+    return _DOTENV_PATH
+
 
 class CredentialUpdate(BaseModel):
     key: str
@@ -74,8 +86,8 @@ def _read_from_dotenv(key: str) -> str | None:
     already merged .env values via load_dotenv()), we can properly
     distinguish between process env vars and .env values.
     """
-    env_path = Path(__file__).resolve().parent.parent / ".env"
-    if not env_path.exists():
+    env_path = _get_dotenv_path()
+    if env_path is None:
         return None
     try:
         values = dotenv.dotenv_values(env_path)
