@@ -17,9 +17,8 @@
 | **反馈闭环** | 5 个确定性校验器（引用检查、幻觉检测、字数统计、语言润色、连贯性检查）+ 聚合器 + 修复指令生成器，支持多轮自动修正 |
 | **守卫系统** | 5 类守卫（来源过滤、事实绑定、操作安全、速率限制、输出标准化），统一管理器调度 |
 | **双层级记忆** | 会话级 JSON 持久化 + 跨会话 SQLite 持久化，含记忆集成层自动注入用户偏好 |
-| **实时 Web UI** | 7 页面 React 前端，14 个组件，WebSocket 实时进度推送 |
-| **RESTful API** | FastAPI 后端，6 路由模块（综述、进度、记忆、凭据、历史、健康检查），完整 OpenAPI 文档 |
-| **凭据安全存储** | 支持 Windows Credential Manager / keyring / .env 三种凭据管理方式，API Key 绝不硬编码 |
+| **实时 Web UI** | 6 页面 React 前端，14 个组件，WebSocket 实时进度推送 |
+| **RESTful API** | FastAPI 后端，5 路由模块（综述、进度、记忆、历史、健康检查），完整 OpenAPI 文档 |
 | **CI/CD 就绪** | GitHub Actions 三流水线（单元测试 + lint + 前端构建），Docker 多阶段构建 |
 
 ---
@@ -131,24 +130,22 @@ ScholarAgent/
 ├── api/                            # API 层（FastAPI）
 │   ├── main.py                     # 应用入口 + 健康检查
 │   ├── models.py                   # Pydantic 数据模型
-│   └── routes/                     # 7 路由模块
+│   └── routes/                     # 6 路由模块
 │       ├── survey.py               # 综述任务 CRUD
 │       ├── progress.py             # 进度 WebSocket 推送
 │       ├── memory.py               # 记忆管理 API
-│       ├── credentials.py          # 凭据管理 API
 │       └── history.py              # 历史任务 API
 ├── web/                            # Web 前端（React + TypeScript + Vite）
 │   ├── src/
-│   │   ├── App.tsx                 # 7 路由入口
+│   │   ├── App.tsx                 # 6 路由入口
 │   │   ├── api/client.ts           # API 客户端
 │   │   ├── hooks/useWebSocket.ts   # WebSocket 实时连接 Hook
-│   │   ├── pages/                  # 7 个页面
+│   │   ├── pages/                  # 6 个页面
 │   │   │   ├── Dashboard.tsx       # 仪表盘首页
 │   │   │   ├── ResearchCreation.tsx# 创建研究任务
 │   │   │   ├── AgentExecution.tsx  # 执行过程实时监控
 │   │   │   ├── KnowledgeExplorer.tsx# 论文关系图谱
 │   │   │   ├── FinalReview.tsx     # 最终审查与导出
-│   │   │   ├── Credentials.tsx     # 凭据管理
 │   │   │   └── HistoryDetail.tsx   # 历史任务详情
 │   │   └── components/             # 14 个 UI 组件
 │   │       ├── Layout.tsx          # 全局布局
@@ -176,7 +173,6 @@ ScholarAgent/
 │   ├── test_evidence_citations.py  # 引用测试
 │   ├── test_api.py / test_models.py# API 层测试
 │   ├── test_config.py / test_prompts.py / test_relevance.py
-│   ├── test_credentials.py         # 凭据管理测试
 │   ├── test_error_recovery.py      # 错误恢复测试
 │   ├── test_demo.py                # 机制演示测试（7 测试）
 │   └── test_integration_pipeline.py# 集成测试
@@ -203,10 +199,10 @@ ScholarAgent/
 ## 系统架构
 
 ```
-Web UI (React 7 页面 + 14 组件)
+Web UI (React 6 页面 + 14 组件)
     │  REST + WebSocket
     ▼
-API Layer (FastAPI 7 路由模块)
+API Layer (FastAPI 6 路由模块)
     │
     ▼
 Agent Harness (Python)
@@ -285,7 +281,6 @@ ScholarAgent 采用 **Mock-LLM 驱动测试**，所有测试不依赖真实 LLM 
 | 反馈系统 | `test_feedback.py` | 5 校验器的确定性验证、多轮修正 |
 | 证据层 | `test_evidence.py` | 论断提取、引用锚定、证据校验（2248 行） |
 | API 层 | `test_api.py`, `test_models.py` | REST 端点 CRUD、WebSocket 推送、数据模型 |
-| 凭据管理 | `test_credentials.py` | 安全存储、读取、更新、清除 |
 | 错误恢复 | `test_error_recovery.py` | 状态超时、非法操作、异常恢复 |
 | 机制演示 | `test_demo.py` | 守卫拦截 + 反馈修正行为的端到端演示 |
 
@@ -302,7 +297,6 @@ ScholarAgent 采用 **Mock-LLM 驱动测试**，所有测试不依赖真实 LLM 
 | 测试 | pytest + pytest-asyncio + httpx |
 | CI | GitHub Actions（3 流水线） |
 | 容器化 | Docker 多阶段构建 |
-| 凭据管理 | keyring / Windows Credential Manager |
 | LLM 供应商 | OpenAI 兼容接口（默认 deepseek-v4-flash） |
 
 ---
