@@ -1,8 +1,7 @@
 """Tests for Harness — covering all missing branches and uncovered paths."""
-import threading
 import pytest
 from agent.core.state import AgentState, StateMachine
-from agent.core.harness import Harness, HarnessConfig, TaskInfo
+from agent.core.harness import Harness, HarnessConfig
 from agent.core.llm import MockLLM
 from agent.feedback.base import ValidationResult
 
@@ -383,6 +382,7 @@ def test_run_catches_fatal_error():
     """run() should catch LLM exceptions and return error result."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
+
     def failing_generate(*args, **kwargs):
         raise RuntimeError("LLM unavailable")
     h.llm.generate = failing_generate
@@ -436,6 +436,7 @@ def test_safe_llm_call_raises_runtime_error():
     """_safe_llm_call should wrap LLM errors in RuntimeError."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
+
     def failing_generate(*args, **kwargs):
         raise ValueError("API error")
     h.llm.generate = failing_generate
@@ -481,6 +482,7 @@ def test_progress_with_callback():
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
     captured = []
+
     def cb(stage, msg, detail):
         captured.append((stage, msg))
     h._progress(cb, "stage1", "msg1")
@@ -557,17 +559,20 @@ def test_result_with_latex_repair_log():
     """_result should include latex_repair_log when available."""
     llm = MockLLM()
     h = Harness(config=HarnessConfig(), llm=llm)
+
     class MockEntry:
         def __init__(self):
             self.rule = "test_rule"
             self.location = "line 1"
             self.original = "old"
             self.replacement = "new"
+
     class MockRepairLog:
         def __init__(self):
             self.has_changes = True
             self.change_count = 1
             self.entries = [MockEntry()]
+
         def summary(self):
             return "1 change applied"
     h.latex_repair_log = MockRepairLog()
@@ -743,6 +748,7 @@ def test_retry_on_error_fails_then_raises():
     h = Harness(config=config, llm=llm)
     h.start(topic="Test")
     call_count = 0
+
     def failing_fn():
         nonlocal call_count
         call_count += 1

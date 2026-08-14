@@ -1,7 +1,7 @@
 """Tests for PipelineOrchestrator — covering all missing branches and uncovered paths."""
 import threading
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from agent.core.state import AgentState, StateMachine
 from agent.core.pipeline import (
     HarnessConfig,
@@ -9,7 +9,7 @@ from agent.core.pipeline import (
     PipelineResult,
     TaskInfo,
 )
-from agent.core.llm import MockLLM, LLMResponse
+from agent.core.llm import MockLLM
 from agent.guardrails.manager import GuardrailManager
 from agent.tools.registry import ToolRegistry
 from agent.feedback.base import ValidationResult
@@ -368,6 +368,7 @@ def test_format_repair_with_mock_repair(orch):
             self.location = "line 1"
             self.original = "old"
             self.replacement = "new"
+
         def short(self):
             return f"{self.rule}: {self.original} -> {self.replacement}"
 
@@ -377,6 +378,7 @@ def test_format_repair_with_mock_repair(orch):
             self.change_count = 2
             self.fixed_text = "\\section{Fixed}"
             self.entries = [MockEntry(), MockEntry()]
+
         def summary(self):
             return "2 changes applied"
 
@@ -396,6 +398,7 @@ def test_format_repair_no_changes(orch):
             self.change_count = 0
             self.fixed_text = "original draft"
             self.entries = []
+
         def summary(self):
             return "No changes"
 
@@ -508,6 +511,7 @@ def test_build_result_with_latex_log(orch):
             self.has_changes = True
             self.change_count = 1
             self.entries = [MockEntry()]
+
         def summary(self):
             return "1 change"
 
@@ -718,6 +722,7 @@ def test_orch_progress(orch, sample_task, sample_state):
     orch._task = sample_task
     orch._state = sample_state
     captured = []
+
     def cb(stage, msg, detail):
         captured.append((stage, msg))
     orch._progress(cb, "test_stage", "test message")
@@ -751,6 +756,7 @@ def test_orch_retry_on_error_exhausted(orch, sample_state):
     orch._state = sample_state
     orch.config.max_pipeline_retries = 0
     call_count = 0
+
     def failing_fn():
         nonlocal call_count
         call_count += 1

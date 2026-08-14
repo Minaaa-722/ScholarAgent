@@ -1,6 +1,6 @@
 """Tests for LLM module — covering retry, streaming, auth failure, model switching."""
 import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 from agent.core.llm import LLMBase, MockLLM, LLMResponse, OpenAILLM
 
 
@@ -87,7 +87,7 @@ def test_openai_llm_init_with_env(mock_openai):
 def test_openai_llm_init_with_params(mock_openai):
     """Explicit params should override env vars."""
     llm = OpenAILLM(api_key="sk-explicit", model="gpt-4-turbo",
-                     base_url="https://api.openai.com/v1", max_retries=5, timeout=60)
+                    base_url="https://api.openai.com/v1", max_retries=5, timeout=60)
     assert llm.api_key == "sk-explicit"
     assert llm.model == "gpt-4-turbo"
     assert llm.max_retries == 5
@@ -236,7 +236,7 @@ def test_openai_generate_retry_on_transient_error(mock_openai):
     ]
 
     llm = OpenAILLM(api_key="sk-test", max_retries=2)
-    with patch("time.sleep") as mock_sleep:  # Speed up test
+    with patch("time.sleep") as _:  # Speed up test
         result = llm.generate("system", "user")
     assert result.text == "Success after retry"
     assert mock_client.chat.completions.create.call_count == 2

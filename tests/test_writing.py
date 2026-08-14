@@ -1,5 +1,4 @@
 """Tests for Writing tools — WriteChapter, ExpandParagraph, TruncateParagraph, InsertReferences."""
-import pytest
 from agent.tools.writing import (
     WriteChapter,
     ExpandParagraph,
